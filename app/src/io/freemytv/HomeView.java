@@ -683,6 +683,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean heroFading = tickHeroFade(up);
         boolean bgFading = tickBackgroundFade(up);
         boolean nightMoving = tickNight(up);
+        boolean panning = panning(up);
 
         if (drawerMoving || sheetMoving || motionDirty) updateMotion();
         // Opening and closing the drawer only moves the cached layers: redrawing the glass on every frame made the TV
@@ -694,7 +695,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (heroMoving || heroDirty || heroFading) heroLayer.invalidate();
         if (drawerItemsMoving || drawerDirty || bgFading) drawerLayer.invalidate();
         if (gridMoving || gridDirty) sheetLayer.invalidate();
-        if (drawerMoving || bgFading) sky.invalidate();
+        if (drawerMoving || bgFading || panning) sky.invalidate();
         if (bgFading || (drawerWasMoving && !drawerMoving)) platter.invalidate();
         drawerWasMoving = drawerMoving;
         tilesDirty = statusDirty = heroDirty = drawerDirty = gridDirty = motionDirty = false;
@@ -710,7 +711,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
         // Busy: something is moving, or the sheet or the drawer is open.
         boolean busy = tilesMoving || statusMoving || heroMoving || drawerItemsMoving || gridMoving || drawerMoving
-                || sheetMoving || toastFading || heroFading || bgFading || nightMoving || sheetOpen || sheet.value > 0.001f
+                || sheetMoving || toastFading || heroFading || bgFading || nightMoving || panning || sheetOpen || sheet.value > 0.001f
                 || drawerOpen || drawer.value > 0.001f || toast != null || !toasts.isEmpty();
         idle = !busy;
         if (busy) Choreographer.getInstance().postFrameCallback(this);
@@ -855,6 +856,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void showBackdrop(Backdrop b) {
         if (b == bgTo) return;
         long up = SystemClock.uptimeMillis();
+        panAt = up;
         // In the middle of another swap, start from whichever is more visible.
         if (bgFadeAt == 0 || fadeEase(bgFadeAt, up) >= 0.5f) bgFrom = bgTo;
         bgTo = b;
@@ -2933,8 +2935,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void drawLightImage(Canvas c, Backdrop b, float alpha) {
-        if (b.image != null) {      // featured hero: the sharp photo, day and night
+        if (b.image != null) {      // featured hero: the sharp photo, day and night, slowly closing in
+            float t = b == bgTo ? panProgress(SystemClock.uptimeMillis()) : 1;
+            float s = 1 + PAN_ZOOM * t;
+            c.save();
+            c.scale(s, s, w * 0.62f, h * 0.42f);    // toward the picture's subject, away from the text on the left
             drawImage(c, b.image, alpha);
+            c.restore();
             return;
         }
         if (night < 0.999f || b.nightImage == null) drawImage(c, b.lightImage, alpha);
@@ -3003,6 +3010,22 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final float F_TOP_BASE = 116, F_BUTTON_TOP = 710, F_TITLE_W = 980;
     private static final float F_BUTTON_H = 68, F_BUTTON_PAD = 34, F_LOGO_W = 720, F_LOGO_H = 200;
     private StaticLayout featuredTitle;
+    // Slow pan (Ken Burns): the featured photo closes in by PAN_ZOOM over PAN_MS (the time a pick stays), eased.
+    private static final long PAN_MS = 15_000;
+    private static final float PAN_ZOOM = 0.07f;
+    private long panAt;
+
+    private float panProgress(long up) {
+        float t = Ui.clamp((up - panAt) / (float) PAN_MS);
+        return t * (2 - t);     // ease out: moves most at first, settles at the end
+    }
+
+    /** The background is mid-pan and in view (not under the drawer or All Apps): it redraws every frame. */
+    private boolean panning(long up) {
+        return featured() && bgTo != null && bgTo.image != null && !sheetOpen && !drawerOpen && drawer.value < 0.001f
+                && up - panAt < PAN_MS;
+    }
+
     /** When ← or → last moved the hero (the next automatic move waits a full interval after it). */
     private long browsedAt;
     private String featuredTitleText;
