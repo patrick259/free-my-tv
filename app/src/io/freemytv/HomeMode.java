@@ -49,6 +49,10 @@ final class HomeMode {
     /** Classic Android TV's home screen; its recommendations service crashes on the screensaver while it's off (#11). */
     static final String TV_LAUNCHER = "com.google.android.tvlauncher";
     static final String TV_RECOMMENDATIONS = "com.google.android.tvrecommendations";
+    /** Amazon Fire OS pins the physical Home button to this launcher (intent-filter priority ~950) and ignores
+     *  set-home-activity, so on Fire TV we cannot become the real default. Instead the accessibility service
+     *  (RemoteKeyService) watches for it coming to the foreground and bounces back to our HomeActivity. */
+    static final String AMAZON_LAUNCHER = "com.amazon.tv.launcher";
     /** Google TV's home screen: the fallback when the TV's own one wasn't recorded. */
     static final String GOOGLE_HOME = "com.google.android.apps.tv.launcherx/.home.HomeActivity";
     /**
