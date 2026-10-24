@@ -3026,7 +3026,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 && up - panAt < PAN_MS;
     }
 
-    /** When ← or → last moved the hero (the next automatic move waits a full interval after it). */
+    /** When you last moved the hero (← or →) or came onto Watch: the next automatic move waits a full interval. */
     private long browsedAt;
     private String featuredTitleText;
 
@@ -3270,6 +3270,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 if (dy >= 0) return false;
                 if (featured() && !picks.isEmpty()) {
                     zone = Z_HERO;
+                    browsedAt = SystemClock.uptimeMillis();   // a full interval on Watch before the pick changes
                 } else if (cards.isEmpty()) {
                     if (!tabsOn() && lightButtons.isEmpty()) return true;   // no tabs and no buttons above
                     zone = Z_TOP;
@@ -3313,6 +3314,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 } else if (dy > 0) {
                     if (featured() && !picks.isEmpty()) {
                         zone = Z_HERO;
+                        browsedAt = SystemClock.uptimeMillis();
                     } else if (cards.isEmpty()) {
                         zone = Z_SHELF;
                     } else {

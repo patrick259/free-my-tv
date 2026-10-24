@@ -489,7 +489,10 @@ final class HomeApps {
                 plain = intent;
                 if (plain != null) plain.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
                 if (intent != null && it.uri != null) {
-                    intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(it.uri)).addCategory(Intent.CATEGORY_BROWSABLE).setPackage(it.pkg);
+                    intent = new Intent(Intent.ACTION_VIEW, titleUri(it.uri)).addCategory(Intent.CATEGORY_BROWSABLE).setPackage(it.pkg);
+                    // A running app only comes to the front and drops the address (Prime Video): start it afresh. Not
+                    // Netflix: started afresh it asks who's watching and forgets the title; running, it opens it.
+                    if (!"com.netflix.ninja".equals(it.pkg)) intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK);
                 }
                 break;
             case LIVE_TV:
@@ -534,6 +537,20 @@ final class HomeApps {
                 return false;
             }
         }
+    }
+
+    /**
+     * A title's address as its app takes it: Watchmode sometimes gives a tracking redirect (paramountplus.qflm.net/…
+     * ?u=https://www.paramountplus.com/shows/…), which the app doesn't know; the real address is in its `u`.
+     */
+    static android.net.Uri titleUri(String address) {
+        android.net.Uri uri = android.net.Uri.parse(address);
+        try {
+            String inner = uri.getQueryParameter("u");
+            if (inner != null && inner.startsWith("https://")) return android.net.Uri.parse(inner);
+        } catch (UnsupportedOperationException ignored) {
+        }
+        return uri;
     }
 
     /**
