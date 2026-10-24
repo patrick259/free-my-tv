@@ -487,7 +487,9 @@ final class HomeApps {
                 intent = liveTv(a);
                 break;
             case INPUT:
-                intent = allwinnerInputs(a) ? new Intent().setComponent(ALLWINNER_TV)
+                // Fire TV: Amazon's Live TV takes the standard request but doesn't switch input; we show it ourselves.
+                intent = HomeMode.AMAZON ? new Intent(a, InputPlayerActivity.class).putExtra(InputPlayerActivity.EXTRA_INPUT, it.inputId)
+                        : allwinnerInputs(a) ? new Intent().setComponent(ALLWINNER_TV)
                         : new Intent(Intent.ACTION_VIEW, TvContract.buildChannelUriForPassthroughInput(it.inputId));
                 break;
             case SETTINGS:
