@@ -527,7 +527,8 @@ final class HomeApps {
                 intent = new Intent().setComponent(new ComponentName(VENEZIA, VENEZIA + ".ade.ADEHomeActivity"));
                 break;
             case ANDROID_SETTINGS:
-                intent = new Intent(Settings.ACTION_SETTINGS);
+                // Fire TV: its settings are a page of Amazon's home screen, which our Home redirect would leave.
+                intent = HomeMode.AMAZON ? FireSettings.open(a) : new Intent(Settings.ACTION_SETTINGS);
                 break;
             case DEVICE:
                 // A fresh task: else Back walks through whatever the maker's settings app had open before

@@ -28,8 +28,9 @@ Open items for the Insignia Fire TV build (branch `wip/fire-home-redirect`). New
       does), swallowing presses while it's up.
 - [ ] Sometimes the first ←/→ after ↑ doesn't register (home screen and Scores page). Works with adb key presses
       (which skip the accessibility key filter), so it needs a real-remote repro: note when it happens.
-- [ ] Right after an update, Home on Amazon's home screen does nothing (no window change to react to) and a second
-      press opens Amazon's guide. `tools/firetv-install.sh` restarts the service; maybe redirect on service connect.
+- [x] Home on Amazon's own home screen (after an update, or in Fire TV's settings, which are a page of it) did
+      nothing. `HomeWatcher` now sees every Home press in the system log (READ_LOGS, granted by the install script).
+- [x] TV Settings opens Fire TV's settings and stays there until Home (`FireSettings`).
 
 ## Housekeeping
 - [ ] Merge `wip/fire-home-redirect` into `main` on the fork and tag a version.

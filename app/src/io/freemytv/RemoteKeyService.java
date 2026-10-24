@@ -18,7 +18,8 @@ import android.view.accessibility.AccessibilityEvent;
  * over it (FireHomeActivity: HomeActivity's resumeWhilePausing leaves the remote's focus on Amazon's launcher).
  * Fire OS 7 handles Home before the key filter (it never reaches onKeyEvent), and Home holds app starts back for
  * about 5 s (stopAppSwitches), so ours comes up that long after Amazon's. At power-on it leaves the TV to come back
- * to its last input first (PowerOn).
+ * to its last input first (PowerOn), and while you're in Fire TV's settings (a page of Amazon's home screen:
+ * FireSettings) it waits for Home.
  */
 public class RemoteKeyService extends AccessibilityService {
     /** Window-state events come in bursts: one redirect per burst. */
@@ -31,14 +32,22 @@ public class RemoteKeyService extends AccessibilityService {
         }
     };
 
+    /** Every Home press, also where no window changes (Amazon's home screen already in front). */
+    private final HomeWatcher homeWatcher = new HomeWatcher(this, () -> {
+        FireSettings.homePressed(this);
+        if (HomeMode.amazonRedirect(this) && !PowerOn.holding()) redirect();
+    });
+
     @Override protected void onServiceConnected() {
         super.onServiceConnected();
         registerReceiver(screenOn, new IntentFilter(Intent.ACTION_SCREEN_ON));
+        if (HomeMode.AMAZON) homeWatcher.start();
         // Started by a boot rather than woken: the screen-on came before us.
         if (SystemClock.elapsedRealtime() < 3 * 60_000) PowerOn.screenOn(this);
     }
 
     @Override public void onDestroy() {
+        homeWatcher.stop();
         try {
             unregisterReceiver(screenOn);
         } catch (IllegalArgumentException ignored) {
@@ -53,8 +62,13 @@ public class RemoteKeyService extends AccessibilityService {
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return;
         CharSequence pkg = event.getPackageName();
+        if (pkg != null) FireSettings.windowOf(this, pkg.toString());
         if (pkg == null || !HomeMode.AMAZON_LAUNCHER.contentEquals(pkg) || !HomeMode.amazonRedirect(this)) return;
-        if (PowerOn.holding()) return;
+        if (PowerOn.holding() || FireSettings.passing(this)) return;
+        redirect();
+    }
+
+    private void redirect() {
         long now = SystemClock.elapsedRealtime();
         if (now - lastRedirect < REDIRECT_GAP) return;
         lastRedirect = now;

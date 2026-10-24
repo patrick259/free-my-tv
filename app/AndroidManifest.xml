@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- The "Continue watching" and channel rows other apps publish (WatchNext). Granted over adb, never asked for. -->
     <uses-permission android:name="android.permission.READ_TV_LISTINGS" />
+    <!-- Fire TV: Home presses, from the system log (HomeWatcher). Granted over adb, never asked for. -->
+    <uses-permission android:name="android.permission.READ_LOGS" />
 
     <!-- Android 11+: without this list the app can't "see" the other apps (getLeanbackLaunchIntentForPackage
          returns null). The shelf and streaming apps, the live TV apps and, through the <intent>, every TV app
