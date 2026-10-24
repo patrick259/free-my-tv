@@ -860,9 +860,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void showBackdrop(Backdrop b) {
         if (b == bgTo) return;
         long up = SystemClock.uptimeMillis();
+        // In the middle of another swap, start from whichever is more visible. The one leaving keeps its zoom.
+        if (bgFadeAt == 0 || fadeEase(bgFadeAt, up) >= 0.5f) {
+            bgFromZoom = 1 + PAN_ZOOM * panProgress(up);
+            bgFrom = bgTo;
+        }
         panAt = up;
-        // In the middle of another swap, start from whichever is more visible.
-        if (bgFadeAt == 0 || fadeEase(bgFadeAt, up) >= 0.5f) bgFrom = bgTo;
         bgTo = b;
         bgFadeAt = up;
         nightPair = false;
@@ -2883,7 +2886,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         Backdrop b = recs.backdrop(currentPick());
         if (b != null) showBackdrop(b);
         recs.logo(currentPick());
-        // Ready ahead: the next and previous picks first, then the ones after them.
+        // Ready ahead (the next and previous picks first, then the ones after them), once this fade is over: building
+        // them while it runs makes it stutter.
+        handler.removeCallbacks(preloadNear);
+        handler.postDelayed(preloadNear, heroFadeAt == 0 ? 0 : FADE_MS + 100);
+        heroDirty = true;
+        spoken.focusMoved();
+    }
+
+    private final Runnable preloadNear = this::preloadNear;
+
+    private void preloadNear() {
+        int n = picks.size();
         for (int d = 1; d <= 2 && 2 * d <= n; d++) {
             Recs.Pick next = picks.get((pickIndex + d) % n), prev = picks.get((pickIndex - d + n) % n);
             recs.backdrop(next);
@@ -2891,13 +2905,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             recs.logo(next);
             recs.logo(prev);
         }
-        heroDirty = true;
-        spoken.focusMoved();
     }
 
     /** ←/→ on the hero, and every 15 s while it isn't focused: the next (or previous) pick, with a fade. */
     private boolean advance(int dir) {
         if (picks.size() < 2) return false;
+        featuredFrom = currentPick();
         pickIndex = (pickIndex + dir + picks.size()) % picks.size();
         heroFadeAt = SystemClock.uptimeMillis();
         showFeatured();
@@ -2953,8 +2966,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private void drawLightImage(Canvas c, Backdrop b, float alpha) {
         if (b.image != null) {      // featured hero: the sharp photo, day and night, slowly closing in
-            float t = b == bgTo ? panProgress(SystemClock.uptimeMillis()) : 1;
-            float s = 1 + PAN_ZOOM * t;
+            float s = b == bgTo ? 1 + PAN_ZOOM * panProgress(SystemClock.uptimeMillis()) : bgFromZoom;
             c.save();
             c.scale(s, s, w * 0.62f, h * 0.42f);    // toward the picture's subject, away from the text on the left
             drawImage(c, b.image, alpha);
@@ -3026,15 +3038,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // Featured hero: one line of time, date and weather at the top; the pick over its photo, anchored above the shelf.
     private static final float F_TOP_BASE = 116, F_BUTTON_TOP = 710, F_TITLE_W = 980;
     private static final float F_BUTTON_H = 68, F_BUTTON_PAD = 34, F_LOGO_W = 720, F_LOGO_H = 200;
-    private StaticLayout featuredTitle;
     // Slow pan (Ken Burns): the featured photo closes in by PAN_ZOOM over PAN_MS (the time a pick stays), eased.
     private static final long PAN_MS = 15_000;
     private static final float PAN_ZOOM = 0.07f;
     private long panAt;
+    /** The zoom of the picture fading out, as it was when the next one came. */
+    private float bgFromZoom = 1;
+    /** The pick fading out of the hero's text (← →, or the next automatic move). */
+    private Recs.Pick featuredFrom;
 
     private float panProgress(long up) {
         float t = Ui.clamp((up - panAt) / (float) PAN_MS);
-        return t * (2 - t);     // ease out: moves most at first, settles at the end
+        return t * t * (3 - 2 * t);     // eases in and out: no lurch as a picture arrives or settles
     }
 
     /** The background is mid-pan and in view (not under the drawer or All Apps): it redraws every frame. */
@@ -3045,7 +3060,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** When you last moved the hero (← or →) or came onto Watch: the next automatic move waits a full interval. */
     private long browsedAt;
-    private String featuredTitleText;
 
     private void drawFeatured(Canvas c) {
         float x = MARGIN * k;
@@ -3069,7 +3083,21 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
         Recs.Pick p = currentPick();
         if (p == null) return;
-        float alpha = heroFadeAt == 0 ? 1 : fadeEase(heroFadeAt, SystemClock.uptimeMillis());
+        // The old pick's text fades out, then the new one's in (a little overlap): never two titles at full strength.
+        float e = heroFadeAt == 0 ? 1 : Ui.clamp((SystemClock.uptimeMillis() - heroFadeAt) / (float) FADE_MS);
+        if (e < 1 && featuredFrom != null && featuredFrom != p) drawFeaturedText(c, featuredFrom, x, 1 - smooth(e / 0.45f));
+        drawFeaturedText(c, p, x, featuredFrom == null || featuredFrom == p ? smooth(e) : smooth((e - 0.3f) / 0.7f));
+        drawFeaturedButton(c, p, Recs.serviceName(p), x, F_BUTTON_TOP * k);
+    }
+
+    private static float smooth(float t) {
+        t = Ui.clamp(t);
+        return t * t * (3 - 2 * t);
+    }
+
+    /** A pick's label, title (its logo when there is one) and details, stacked up from the button. */
+    private void drawFeaturedText(Canvas c, Recs.Pick p, float x, float alpha) {
+        if (alpha <= 0.001f) return;
         String app = Recs.serviceName(p);
         String label = p.label != null ? p.label : app == null || app.isEmpty() ? Recs.periodLabel()
                 : Ui.trf("TRENDING ON {app}", "app", app.toUpperCase(Ui.locale()));
@@ -3090,33 +3118,39 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             c.drawBitmap(logo, null, tmp, bitmapPaint);
             bitmapPaint.setAlpha(255);
         } else {
-            titleTop = titleBottom - featuredTitle(p).getHeight();
+            StaticLayout layout = featuredTitle(p);
+            titleTop = titleBottom - layout.getHeight();
             titlePaint.setColor(0xFFFFFFFF);
             titlePaint.setAlpha(Math.round(255 * alpha));
             c.save();
             c.translate(x, titleTop);
-            featuredTitle.draw(c);
+            layout.draw(c);
             c.restore();
             titlePaint.setAlpha(255);
         }
         text(c, label, x, titleTop - 34 * k, labelPaint, 0xC7FFFFFF, alpha);
         if (meta) text(c, p.meta, x, metaBase, metaPaint, 0xD1FFFFFF, alpha);
-        drawFeaturedButton(c, p, app, x, buttonTop);
     }
 
     /** The title written out (up to two lines), laid out once per title. */
+    /** The written-out title's layout; the last few kept (the old and new picks are drawn together while they fade). */
+    private final Map<String, StaticLayout> featuredTitles = new java.util.LinkedHashMap<String, StaticLayout>(8, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<String, StaticLayout> eldest) { return size() > 4; }
+    };
+
     private StaticLayout featuredTitle(Recs.Pick p) {
         String title = p.title == null ? "" : p.title;
-        if (featuredTitle == null || !title.equals(featuredTitleText)) {
-            featuredTitleText = title;
-            featuredTitle = StaticLayout.Builder.obtain(title, 0, title.length(), titlePaint, Math.max(1, Math.round(F_TITLE_W * k)))
+        StaticLayout layout = featuredTitles.get(title);
+        if (layout == null) {
+            layout = StaticLayout.Builder.obtain(title, 0, title.length(), titlePaint, Math.max(1, Math.round(F_TITLE_W * k)))
                     .setMaxLines(2)
                     .setEllipsize(TextUtils.TruncateAt.END)
                     .setLineSpacing(0, 0.94f)
                     .setIncludePad(false)
                     .build();
+            featuredTitles.put(title, layout);
         }
-        return featuredTitle;
+        return layout;
     }
 
     /**

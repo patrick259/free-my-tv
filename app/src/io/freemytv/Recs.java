@@ -143,7 +143,11 @@ final class Recs {
     // neighbors stay while you browse.
     private final Map<String, Backdrop> images = new LinkedHashMap<>(16, 0.75f, true);
     /** Builds the pictures, apart from io (lists, details, links), so a picture never waits behind the network. */
-    private final ExecutorService imageIo = Executors.newSingleThreadExecutor();
+    private final ExecutorService imageIo = Executors.newSingleThreadExecutor(r -> new Thread(() -> {
+        // Below the screen's drawing: a picture being built never makes the hero's fade stutter.
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+        r.run();
+    }, "hero-pictures"));
     private final java.util.Set<String> pending = new java.util.HashSet<>();
     private volatile List<Pick> picks = new ArrayList<>();
     private volatile int period = -1;
