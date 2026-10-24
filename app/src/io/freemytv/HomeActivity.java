@@ -48,6 +48,7 @@ public class HomeActivity extends Activity {
             return;
         }
         if (home != null) home.resume();
+        WatchNext.probe(this);
     }
 
     @Override protected void onPause() {
