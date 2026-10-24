@@ -2849,9 +2849,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      * whole background. Only it and the next are loaded (Recs keeps few full-screen images).
      */
     private void updateFeatured() {
-        // Big games first (live ones, then the next), then this hour's picks.
-        List<Recs.Pick> list = new ArrayList<>(sports.now());
-        list.addAll(recs.wanted());
+        // Formula 1 first while its weekend runs, then the big games (most important first) taking turns with this
+        // hour's shows and movies; whatever is left of either after that.
+        List<Recs.Pick> games = new ArrayList<>(sports.now()), shows = recs.wanted(), list = new ArrayList<>();
+        while (!games.isEmpty() && games.get(0).game != null && "F1".equals(games.get(0).game.league)) list.add(games.remove(0));
+        for (int g = 0, m = 0; g < games.size() || m < shows.size(); ) {
+            if (g < games.size()) list.add(games.get(g++));
+            if (m < shows.size()) list.add(shows.get(m++));
+        }
         if (!samePicks(list, picks)) {
             // A new list starts over at its first pick (F1, a live game), unless you're on Watch: then you keep yours.
             Recs.Pick was = zone == Z_HERO ? currentPick() : null;
