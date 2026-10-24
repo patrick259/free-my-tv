@@ -1,7 +1,10 @@
 package io.freemytv;
 
 import android.accessibilityservice.AccessibilityService;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.SystemClock;
 import android.view.KeyEvent;
 import android.view.accessibility.AccessibilityEvent;
@@ -14,12 +17,34 @@ import android.view.accessibility.AccessibilityEvent;
  * set-home-activity is ignored), so in Free My TV mode, when Amazon's home screen comes to the front, we open ours
  * over it (FireHomeActivity: HomeActivity's resumeWhilePausing leaves the remote's focus on Amazon's launcher).
  * Fire OS 7 handles Home before the key filter (it never reaches onKeyEvent), and Home holds app starts back for
- * about 5 s (stopAppSwitches), so ours comes up that long after Amazon's.
+ * about 5 s (stopAppSwitches), so ours comes up that long after Amazon's. At power-on it leaves the TV to come back
+ * to its last input first (PowerOn).
  */
 public class RemoteKeyService extends AccessibilityService {
     /** Window-state events come in bursts: one redirect per burst. */
     private static final long REDIRECT_GAP = 800;
     private long lastRedirect;
+
+    private final BroadcastReceiver screenOn = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent intent) {
+            PowerOn.screenOn(RemoteKeyService.this);
+        }
+    };
+
+    @Override protected void onServiceConnected() {
+        super.onServiceConnected();
+        registerReceiver(screenOn, new IntentFilter(Intent.ACTION_SCREEN_ON));
+        // Started by a boot rather than woken: the screen-on came before us.
+        if (SystemClock.elapsedRealtime() < 3 * 60_000) PowerOn.screenOn(this);
+    }
+
+    @Override public void onDestroy() {
+        try {
+            unregisterReceiver(screenOn);
+        } catch (IllegalArgumentException ignored) {
+        }
+        super.onDestroy();
+    }
 
     @Override protected boolean onKeyEvent(KeyEvent event) {
         return RemoteKeys.onKey(this, event);
@@ -29,6 +54,7 @@ public class RemoteKeyService extends AccessibilityService {
         if (event.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return;
         CharSequence pkg = event.getPackageName();
         if (pkg == null || !HomeMode.AMAZON_LAUNCHER.contentEquals(pkg) || !HomeMode.amazonRedirect(this)) return;
+        if (PowerOn.holding()) return;
         long now = SystemClock.elapsedRealtime();
         if (now - lastRedirect < REDIRECT_GAP) return;
         lastRedirect = now;
