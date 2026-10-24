@@ -348,8 +348,34 @@ final class Sports {
         p.label = label;
         String score = "pre".equals(g.state) ? "" : " · " + away.getJSONObject("team").optString("abbreviation") + " "
                 + away.optString("score") + ", " + home.getJSONObject("team").optString("abbreviation") + " " + home.optString("score");
-        p.meta = when(g) + score + " · " + app[3];
+        String series = series(c, teams);
+        p.meta = when(g) + score + (series.isEmpty() ? "" : " · " + series) + " · " + app[3];
         return p;
+    }
+
+    /**
+     * A best-of series in the postseason (baseball, hockey, basketball): "Brewers lead 1–0", "Series tied 2–2",
+     * "Brewers win 4–2". Empty for a single game.
+     */
+    private static String series(JSONObject c, JSONArray teams) throws JSONException {
+        JSONObject series = c.optJSONObject("series");
+        JSONArray wins = series == null ? null : series.optJSONArray("competitors");
+        if (wins == null || wins.length() != 2 || series.optInt("totalCompetitions") < 2) return "";
+        String[] names = new String[2];
+        int[] w = new int[2];
+        for (int i = 0; i < 2; i++) {
+            JSONObject s = wins.getJSONObject(i);
+            w[i] = s.optInt("wins");
+            for (int t = 0; t < teams.length(); t++) {
+                JSONObject team = teams.getJSONObject(t).getJSONObject("team");
+                if (team.optString("id").equals(s.optString("id"))) names[i] = team.optString("shortDisplayName", team.optString("displayName"));
+            }
+            if (names[i] == null) return "";
+        }
+        int lead = w[0] >= w[1] ? 0 : 1, high = w[lead], low = w[1 - lead];
+        if (high == low) return Ui.trf("Series tied {a}–{b}", "a", high, "b", low);
+        return series.optBoolean("completed") ? Ui.trf("{team} win {a}–{b}", "team", names[lead], "a", high, "b", low)
+                : Ui.trf("{team} lead {a}–{b}", "team", names[lead], "a", high, "b", low);
     }
 
     private Recs.Pick pick(Game g, String[] app) {
