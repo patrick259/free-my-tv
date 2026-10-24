@@ -2985,7 +2985,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     // Featured hero: one line of time, date and weather at the top; the pick over its photo, anchored above the shelf.
-    private static final float F_TOP_BASE = 116, F_LABEL_BASE = 392, F_TITLE_TOP = 418, F_TITLE_W = 980;
+    private static final float F_TOP_BASE = 116, F_BUTTON_TOP = 710, F_TITLE_W = 980;
     private static final float F_BUTTON_H = 68, F_BUTTON_PAD = 34, F_LOGO_W = 720, F_LOGO_H = 200;
     private StaticLayout featuredTitle;
     private String featuredTitleText;
@@ -3015,27 +3015,39 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float alpha = heroFadeAt == 0 ? 1 : fadeEase(heroFadeAt, SystemClock.uptimeMillis());
         String app = Recs.serviceName(p);
         String label = app == null || app.isEmpty() ? Recs.periodLabel() : Ui.trf("TRENDING ON {app}", "app", app.toUpperCase(Ui.locale()));
-        text(c, label, x, F_LABEL_BASE * k, labelPaint, 0xC7FFFFFF, alpha);
-        // The title's own logo when TMDB has one (fit in a box, never upscaled past 1.5×); else the title written out.
-        float y;
+        // Anchored at the bottom: the button stays put (where a tall logo needs it) and the details, the title (its
+        // logo when TMDB has one, fit in a box; else written out) and the label stack up from it.
+        boolean meta = p.meta != null && !p.meta.isEmpty();
+        float buttonTop = F_BUTTON_TOP * k, metaBase = buttonTop - 40 * k;
+        float titleBottom = meta ? metaBase - 52 * k : buttonTop - 40 * k;
         Bitmap logo = recs.logo(p);
+        float titleTop;
         if (logo != null) {
             float maxW = F_LOGO_W * k, maxH = F_LOGO_H * k;
             float scale = Math.min(Math.min(maxW / logo.getWidth(), maxH / logo.getHeight()), 1.5f * k);
-            float lw = logo.getWidth() * scale, lh = logo.getHeight() * scale, top = F_TITLE_TOP * k;
-            tmp.set(x, top, x + lw, top + lh);
+            float lw = logo.getWidth() * scale, lh = logo.getHeight() * scale;
+            titleTop = titleBottom - lh;
+            tmp.set(x, titleTop, x + lw, titleBottom);
             bitmapPaint.setAlpha(Math.round(255 * alpha));
             c.drawBitmap(logo, null, tmp, bitmapPaint);
             bitmapPaint.setAlpha(255);
-            y = top + lh;
         } else {
-            y = drawFeaturedTitle(c, p, x, alpha);
+            titleTop = titleBottom - featuredTitle(p).getHeight();
+            titlePaint.setColor(0xFFFFFFFF);
+            titlePaint.setAlpha(Math.round(255 * alpha));
+            c.save();
+            c.translate(x, titleTop);
+            featuredTitle.draw(c);
+            c.restore();
+            titlePaint.setAlpha(255);
         }
-        drawFeaturedRest(c, p, app, x, y, alpha);
+        text(c, label, x, titleTop - 34 * k, labelPaint, 0xC7FFFFFF, alpha);
+        if (meta) text(c, p.meta, x, metaBase, metaPaint, 0xD1FFFFFF, alpha);
+        drawFeaturedButton(c, p, app, x, buttonTop);
     }
 
-    /** The title written out (up to two lines); returns where it ends. */
-    private float drawFeaturedTitle(Canvas c, Recs.Pick p, float x, float alpha) {
+    /** The title written out (up to two lines), laid out once per title. */
+    private StaticLayout featuredTitle(Recs.Pick p) {
         String title = p.title == null ? "" : p.title;
         if (featuredTitle == null || !title.equals(featuredTitleText)) {
             featuredTitleText = title;
@@ -3046,24 +3058,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     .setIncludePad(false)
                     .build();
         }
-        titlePaint.setColor(0xFFFFFFFF);
-        titlePaint.setAlpha(Math.round(255 * alpha));
-        c.save();
-        c.translate(x, F_TITLE_TOP * k);
-        featuredTitle.draw(c);
-        c.restore();
-        titlePaint.setAlpha(255);
-        return F_TITLE_TOP * k + featuredTitle.getHeight();
+        return featuredTitle;
     }
 
-    private void drawFeaturedRest(Canvas c, Recs.Pick p, String app, float x, float y, float alpha) {
-        if (p.meta != null && !p.meta.isEmpty()) {
-            y += 52 * k;
-            text(c, p.meta, x, y, metaPaint, 0xD1FFFFFF, alpha);
-        }
-        // The button: glass at rest; white with dark text when focused (the tvOS focus), growing a little. The dots sit
-        // on its line, to the right: a tall logo can't push them under the shelf.
-        y += 40 * k;
+    /**
+     * The button: glass at rest; white with dark text when focused (the tvOS focus), growing a little. The dots sit on
+     * its line, to the right.
+     */
+    private void drawFeaturedButton(Canvas c, Recs.Pick p, String app, float x, float y) {
         float dotsX = x, dotsY = y + F_BUTTON_H * k / 2;
         if (p.pkg != null) {
             String watch = app == null || app.isEmpty() ? Ui.tr("Watch") : Ui.trf("Watch on {app}", "app", app);
