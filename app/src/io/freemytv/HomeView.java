@@ -2876,11 +2876,16 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** The current pick's photo (once it is ready; Recs notifies) and its neighbors' loading, for ← and →. */
     private void showFeatured() {
+        int n = picks.size();
+        List<Recs.Pick> near = new ArrayList<>();
+        for (int d = -2; d <= 2 && n > 0; d++) near.add(picks.get(((pickIndex + d) % n + n) % n));
+        recs.heroWindow(near);
         Backdrop b = recs.backdrop(currentPick());
         if (b != null) showBackdrop(b);
         recs.logo(currentPick());
-        if (picks.size() > 1) {
-            Recs.Pick next = picks.get((pickIndex + 1) % picks.size()), prev = picks.get((pickIndex - 1 + picks.size()) % picks.size());
+        // Ready ahead: the next and previous picks first, then the ones after them.
+        for (int d = 1; d <= 2 && 2 * d <= n; d++) {
+            Recs.Pick next = picks.get((pickIndex + d) % n), prev = picks.get((pickIndex - d + n) % n);
             recs.backdrop(next);
             recs.backdrop(prev);
             recs.logo(next);

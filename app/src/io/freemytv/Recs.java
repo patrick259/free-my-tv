@@ -70,6 +70,16 @@ final class Recs {
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
     private static final int CACHE_VERSION = 6;
+    /** Full-screen hero pictures kept built: the one on screen, two each side, and the one just left behind. */
+    private static final int HERO_KEEP = 6;
+    /** The hero's pick and its neighbors (their backdrop keys): pictures asked for earlier, now out of reach, are skipped. */
+    private volatile java.util.Set<String> window;
+
+    void heroWindow(List<Pick> near) {
+        java.util.Set<String> keys = new java.util.HashSet<>();
+        for (Pick p : near) if (p != null && p.backdrop != null) keys.add(p.backdrop);
+        window = keys;
+    }
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     /** Service name on TMDB (part of the name, lowercase) → TV app (HomeApps key, package). */
     private static final String[][] SERVICES = {
@@ -129,7 +139,11 @@ final class Recs {
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final List<Listener> listeners = new ArrayList<>();
-    private final Map<String, Backdrop> images = new LinkedHashMap<>();   // this hour's, built and ready to draw
+    // This hour's, built and ready to draw; least recently used first (access order), so the one on screen and its
+    // neighbors stay while you browse.
+    private final Map<String, Backdrop> images = new LinkedHashMap<>(16, 0.75f, true);
+    /** Builds the pictures, apart from io (lists, details, links), so a picture never waits behind the network. */
+    private final ExecutorService imageIo = Executors.newSingleThreadExecutor();
     private final java.util.Set<String> pending = new java.util.HashSet<>();
     private volatile List<Pick> picks = new ArrayList<>();
     private volatile int period = -1;
@@ -244,8 +258,10 @@ final class Recs {
             if (b != null) return b;
             if (!pending.add(key)) return null;
         }
-        io.execute(() -> {
+        imageIo.execute(() -> {
             try {
+                java.util.Set<String> near = window;
+                if (featured && near != null && !near.contains(key)) return;    // browsed past it meanwhile
                 loadImage(p);
             } finally {
                 synchronized (images) { pending.remove(key); }
@@ -915,7 +931,7 @@ final class Recs {
                 if (forLight != light || whole != featured) return;
                 synchronized (images) {
                     images.put(p.backdrop, backdrop);
-                    while (images.size() > (forLight && !whole ? 10 : 4)) images.remove(images.keySet().iterator().next());
+                    while (images.size() > (forLight && !whole ? 10 : HERO_KEEP)) images.remove(images.keySet().iterator().next());
                 }
                 notifyListeners();
                 return;
@@ -936,7 +952,7 @@ final class Recs {
             synchronized (images) {
                 images.put(p.backdrop, backdrop);
                 // Full-screen images (8 MB each at 1080p): only a few; the light design's cards are small.
-                while (images.size() > (forLight && !whole ? 10 : 4)) images.remove(images.keySet().iterator().next());
+                while (images.size() > (forLight && !whole ? 10 : HERO_KEEP)) images.remove(images.keySet().iterator().next());
             }
             notifyListeners();
         } catch (IOException | RuntimeException | OutOfMemoryError e) {

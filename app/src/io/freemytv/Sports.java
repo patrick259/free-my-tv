@@ -127,8 +127,12 @@ final class Sports {
     private volatile long fetchedAt;
     private volatile boolean fetching;
 
+    /** Logos, circuits and flags, kept on the TV once downloaded (they don't change during a season). */
+    private static volatile java.io.File images;
+
     Sports(Context c, Runnable changed) {
         context = c.getApplicationContext();
+        images = new java.io.File(context.getCacheDir(), "sports");
         this.changed = changed;
     }
 
@@ -653,15 +657,30 @@ final class Sports {
     }
 
     private static Bitmap load(String url) {
+        java.io.File dir = images, file = dir == null ? null : new java.io.File(dir, Integer.toHexString(url.hashCode()) + ".img");
+        if (file != null && file.exists()) {
+            Bitmap b = BitmapFactory.decodeFile(file.getPath());
+            if (b != null) return b;
+        }
         try {
             HttpURLConnection con = (HttpURLConnection) new URL(url).openConnection();
             con.setConnectTimeout(8000);
             con.setReadTimeout(15000);
+            byte[] data;
             try (InputStream in = con.getInputStream()) {
-                return BitmapFactory.decodeStream(in);
+                data = read(in);
             } finally {
                 con.disconnect();
             }
+            Bitmap b = BitmapFactory.decodeByteArray(data, 0, data.length);
+            if (b != null && file != null) {
+                //noinspection ResultOfMethodCallIgnored
+                dir.mkdirs();
+                try (java.io.FileOutputStream out = new java.io.FileOutputStream(file)) {
+                    out.write(data);
+                }
+            }
+            return b;
         } catch (IOException | RuntimeException e) {
             AppLog.w("image " + url + ": " + e.getMessage());
             return null;
@@ -679,15 +698,7 @@ final class Sports {
     /** A logo `size` wide on a rounded smoked badge centered at (cx, cy). */
     private static void badge(Canvas c, Paint paint, String url, float cx, float cy, float size) {
         try {
-            HttpURLConnection con = (HttpURLConnection) new URL(url).openConnection();
-            con.setConnectTimeout(8000);
-            con.setReadTimeout(15000);
-            Bitmap logo;
-            try (InputStream in = con.getInputStream()) {
-                logo = BitmapFactory.decodeStream(in);
-            } finally {
-                con.disconnect();
-            }
+            Bitmap logo = load(url);
             if (logo == null) return;
             // The logo file is square with space around the mark: trim to the mark first.
             Bitmap mark = trim(logo);
@@ -700,7 +711,7 @@ final class Sports {
             c.drawBitmap(mark, null, new RectF(cx - lw / 2, cy - lh / 2, cx + lw / 2, cy + lh / 2), paint);
             if (mark != logo) mark.recycle();
             logo.recycle();
-        } catch (IOException | RuntimeException e) {
+        } catch (RuntimeException e) {
             AppLog.w("league badge: " + e.getMessage());
         }
     }
