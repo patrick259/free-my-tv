@@ -10,13 +10,15 @@ import android.view.accessibility.AccessibilityEvent;
  * Sees the remote's keys before any app does, so the app buttons work from inside Netflix, Disney and the rest. The
  * system waits for it on every key (up to half a second), so it runs in a process of its own and does next to nothing.
  *
- * On Amazon Fire OS it does one more thing. Fire OS hard-pins the physical Home button to Amazon's launcher
- * (com.amazon.tv.launcher, intent-filter priority ~950) and ignores set-home-activity, so our HomeActivity can never
- * become the real default. Instead, while Free My TV mode is on, we watch for the Amazon launcher coming to the
- * foreground and bounce straight to our home screen. It is the same approach Projectivy and "Home on Fire" use, and it
- * needs only the one Accessibility toggle the user already grants for the remote buttons -- no ADB.
+ * On Fire TV it also takes the Home button. Amazon's launcher keeps HOME (priority 950, a protected package, and
+ * set-home-activity is ignored), so in Free My TV mode, when Amazon's home screen comes to the front, we open ours
+ * over it (FireHomeActivity: HomeActivity's resumeWhilePausing leaves the remote's focus on Amazon's launcher).
+ * Fire OS 7 handles Home before the key filter (it never reaches onKeyEvent), and Home holds app starts back for
+ * about 5 s (stopAppSwitches), so ours comes up that long after Amazon's.
  */
 public class RemoteKeyService extends AccessibilityService {
+    /** Window-state events come in bursts: one redirect per burst. */
+    private static final long REDIRECT_GAP = 800;
     private long lastRedirect;
 
     @Override protected boolean onKeyEvent(KeyEvent event) {
@@ -24,22 +26,16 @@ public class RemoteKeyService extends AccessibilityService {
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
-        if (event == null || event.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return;
+        if (event.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return;
         CharSequence pkg = event.getPackageName();
-        // Only react to Amazon's launcher taking the foreground; this package exists only on Fire OS, so the redirect
-        // is inert on every other platform.
-        if (pkg == null || !HomeMode.AMAZON_LAUNCHER.contentEquals(pkg)) return;
-        // Take over Home only when the user has turned Free My TV mode on (state is a file shared across processes).
-        if (!HomeMode.FREE.equals(HomeMode.state(this).optString("mode"))) return;
-        // Window-state events can arrive in bursts; one redirect per short window is enough and avoids hammering.
+        if (pkg == null || !HomeMode.AMAZON_LAUNCHER.contentEquals(pkg) || !HomeMode.amazonRedirect(this)) return;
         long now = SystemClock.elapsedRealtime();
-        if (now - lastRedirect < 800L) return;
+        if (now - lastRedirect < REDIRECT_GAP) return;
         lastRedirect = now;
         try {
-            startActivity(new Intent(this, HomeActivity.class)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP));
-        } catch (Exception e) {
-            AppLog.w("Fire OS home redirect failed: " + e.getMessage());
+            startActivity(new Intent(this, FireHomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (RuntimeException e) {
+            AppLog.w("home redirect: " + e.getMessage());
         }
     }
 

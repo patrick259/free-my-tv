@@ -1,8 +1,10 @@
 package io.freemytv;
 
+import android.content.ContentResolver;
 import android.content.Context;
 import android.os.Build;
 import android.os.SystemClock;
+import android.provider.Settings;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -222,8 +224,8 @@ final class HomeMode {
 
     /** After the TV boots (and after a TV update): wait for the system to settle and check Free My TV mode. */
     static void bootCheck(Context c) {
-        if (AMAZON) return;
         ensureRemoteService(c, 30_000);
+        if (AMAZON) return;
         ModeJob.schedule(c, ModeJob.VERIFY, null, 45_000);
     }
 
@@ -235,14 +237,15 @@ final class HomeMode {
     /**
      * The remote's app buttons (RemoteKeys) need an accessibility service that only filters those keys. It is on only
      * on TCL, Vestel, KTC, Sony and Xiaomi TVs (and Formovie projectors) in Free My TV mode, and goes off with Original. Android turns it off when this app is updated, so the
-     * boot check and an update turn it back on.
+     * boot check and an update turn it back on. On Fire TV the same service is what sends the Home button to us
+     * ({@link #amazonRedirect}).
      */
     static void ensureRemoteService(Context c, long delayMs) {
-        if (RemoteKeys.supported()) ModeJob.schedule(c, ModeJob.REMOTE, null, delayMs);
+        if (RemoteKeys.supported() || AMAZON) ModeJob.schedule(c, ModeJob.REMOTE, null, delayMs);
     }
 
     static void ensureRemoteServiceNow(Context app) {
-        if (!RemoteKeys.supported() || !FREE.equals(state(app).optString("mode"))) return;
+        if (!(RemoteKeys.supported() || AMAZON) || !FREE.equals(state(app).optString("mode"))) return;
         try (Adb adb = Adb.connect(app, 10_000, null)) {
             remoteService(app, adb, true);
         } catch (IOException e) {
@@ -294,7 +297,7 @@ final class HomeMode {
     private static void applyFree(Context c) {
         JSONObject s = state(c);
         if (AMAZON) {
-            done(c, Ui.tr("On Fire TV the Home button belongs to Amazon's home screen. Free My TV stays an app here: open it from your apps."));
+            applyFreeAmazon(c, s);
             return;
         }
         // Kalley 43G200 turns Google TV's setup app back on at every start: without its home screen the next start
@@ -415,8 +418,73 @@ final class HomeMode {
         }
     }
 
+    /**
+     * Fire TV: Amazon's launcher keeps the Home button (priority 950, protected, set-home-activity ignored), so nothing
+     * is turned off and no home screen is set. Free My TV mode is the accessibility service plus the mode in our state:
+     * the service sends Amazon's home screen back to ours only in Free My TV mode ({@link #amazonRedirect}).
+     * Fire OS 7 refuses ADB connections from the TV itself (127.0.0.1 and its own address both close at once), so the
+     * service may have to be turned on from a computer; the mode alone needs no ADB.
+     */
+    private static void applyFreeAmazon(Context c, JSONObject s) {
+        try {
+            busy(c, Ui.tr("Taking over the Home button…"));
+            if (!remoteServiceEnabled(c)) {
+                try (Adb adb = Adb.connect(c, 10_000, null)) {
+                    remoteService(c, adb, true);
+                } catch (IOException e) {
+                    AppLog.w("remote buttons service over ADB: " + e.getMessage());
+                }
+            }
+            if (!remoteServiceEnabled(c)) {
+                done(c, Ui.tr("Fire TV doesn't let apps turn this on by themselves. From a computer: adb shell settings put secure enabled_accessibility_services "
+                        + REMOTE_SERVICE + " (then accessibility_enabled 1), and switch again."));
+                return;
+            }
+            Watchdog.clear(c);
+            JSONObject latest = state(c);
+            latest.put("mode", FREE).put("since", System.currentTimeMillis()).put("homeReverted", false);
+            save(c, latest);
+            notice(c, Ui.tr("Free My TV is on: the Home button opens it. Amazon's home screen stays installed."));
+            done(c, null);
+        } catch (Exception e) {
+            done(c, Ui.trf("Couldn't turn on Free My TV: {error}", "error", e.getMessage()));
+        }
+    }
+
+    /** No ADB needed: with the mode back to Original, the service leaves Amazon's home screen alone. */
+    private static void applyOriginalAmazon(Context c, JSONObject s) {
+        try {
+            s = state(c);
+            s.put("mode", ORIGINAL).put("since", System.currentTimeMillis()).put("homeReverted", false);
+            save(c, s);
+            notice(c, Ui.tr("Original mode: the Home button opens Amazon's home screen again."));
+            done(c, null);
+        } catch (Exception e) {
+            done(c, Ui.trf("Couldn't switch back: {error}", "error", e.getMessage()));
+        }
+    }
+
+    /** Our accessibility service is on (readable without ADB). */
+    private static boolean remoteServiceEnabled(Context c) {
+        ContentResolver r = c.getContentResolver();
+        String list = Settings.Secure.getString(r, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        return Settings.Secure.getInt(r, Settings.Secure.ACCESSIBILITY_ENABLED, 0) == 1
+                && list != null && Arrays.asList(list.split(":")).contains(REMOTE_SERVICE);
+    }
+
+    /** Fire TV, read by RemoteKeyService on every window change of Amazon's launcher: should Home come to us? */
+    static boolean amazonRedirect(Context c) {
+        if (!AMAZON) return false;
+        JSONObject s = state(c);
+        return FREE.equals(s.optString("mode")) && !s.optBoolean("homeReverted") && !Watchdog.crashedTooOften(c);
+    }
+
     private static void applyOriginal(Context c) {
         JSONObject s = state(c);
+        if (AMAZON) {
+            applyOriginalAmazon(c, s);
+            return;
+        }
         try (Adb adb = connect(c, s)) {
             busy(c, Ui.tr("Turning the apps back on…"));
             String home = originalHome(s);
@@ -526,6 +594,14 @@ final class HomeMode {
     static void revertHomeNow(Context app) {
         synchronized (RUN) {
             JSONObject s = state(app);
+            if (AMAZON) {
+                // Nothing was taken from Amazon's home screen: stop sending Home to ours, and it is back.
+                if (!FREE.equals(s.optString("mode")) || s.optBoolean("homeReverted")) return;
+                try { s.put("homeReverted", true); } catch (JSONException ignored) {}
+                save(app, s);
+                notice(app, Ui.tr("Free My TV's home screen crashed 3 times in a row; I switched back to the original one."));
+                return;
+            }
             try (Adb adb = Adb.connect(app, 10_000, null)) {
                 boolean ours = homeHolder(adb).contains(PKG);
                 if (!ours && (!FREE.equals(s.optString("mode")) || s.optBoolean("homeReverted"))) return;
