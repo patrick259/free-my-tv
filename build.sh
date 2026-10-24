@@ -43,6 +43,7 @@ CRYPTO=false; [ "$(prop show_crypto true)" = "true" ] && CRYPTO=true
 ANIMATION=false; [ "$(prop hide_animation false)" = "true" ] && ANIMATION=true
 HORROR=false; [ "$(prop hide_horror false)" = "true" ] && HORROR=true
 TOONS=false; [ "$(prop hide_animated_shows false)" = "true" ] && TOONS=true
+SPORTS=true; [ "$(prop show_sports true)" = "false" ] && SPORTS=false
 
 rm -rf out && mkdir -p out/gen/io/freemytv out/classes
 cat > out/gen/io/freemytv/Config.java <<EOF
@@ -67,6 +68,7 @@ final class Config {
     static final boolean HIDE_ANIMATION = $ANIMATION;
     static final boolean HIDE_HORROR = $HORROR;
     static final boolean HIDE_ANIMATED_SHOWS = $TOONS;
+    static final boolean SHOW_SPORTS = $SPORTS;
 }
 EOF
 

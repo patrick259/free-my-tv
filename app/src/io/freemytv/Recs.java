@@ -50,6 +50,8 @@ final class Recs {
         String logo;            // TMDB's title logo (file path), or null: the title is written out
         boolean scary;          // horror (by genre or TMDB keyword): left out with hide_horror=true
         boolean cartoon;        // an animated series (anime, cartoons): left out with hide_animated_shows=true
+        String label;           // the hero's line above the title, when not "Trending on …" (a game: "WORLD SERIES · GAME 2")
+        Sports.Game game;       // a game (Sports): its picture is drawn, not downloaded
         boolean detailed;
         java.io.File photo;     // one of your own photos (Photos): no title, no caption
     }
@@ -103,6 +105,7 @@ final class Recs {
         SERVICE_NAME.put("globoplay", "Globoplay");
         SERVICE_NAME.put("max", "Max");
         SERVICE_NAME.put("appletv", "Apple TV");
+        SERVICE_NAME.put("youtubetv", "YouTube TV");
         SERVICE_NAME.put("hotstar", "JioHotstar");
         SERVICE_NAME.put("okko", "Okko");
         SERVICE_NAME.put("crunchyroll", "Crunchyroll");
@@ -906,6 +909,17 @@ final class Recs {
         }
         File f = imageFile(p);
         try {
+            if (p.game != null) {
+                boolean forLight = light, whole = featured;
+                Backdrop backdrop = Backdrop.make(Sports.art(p.game, Backdrop.W, Backdrop.H), forLight, false, whole);
+                if (forLight != light || whole != featured) return;
+                synchronized (images) {
+                    images.put(p.backdrop, backdrop);
+                    while (images.size() > (forLight && !whole ? 10 : 4)) images.remove(images.keySet().iterator().next());
+                }
+                notifyListeners();
+                return;
+            }
             download(p);
             BitmapFactory.Options bounds = new BitmapFactory.Options();
             bounds.inJustDecodeBounds = true;

@@ -107,6 +107,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Scene scene = new Scene();
     private final HomeData data;
     private final Recs recs;
+    private final Sports sports;
     private final Click click;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final SharedPreferences ui;
@@ -348,6 +349,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             wake();
             data.refreshIfStale();
             recs.refreshIfStale();
+        sports.refreshIfStale();
             checkNotices();
             updatePalette();
             checkNight(true);
@@ -364,6 +366,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         activity = a;
         data = HomeData.get(a);
         recs = Recs.get(a);
+        sports = new Sports(a, () -> { if (running) updatePicks(); });
         click = new Click(a);
         shelfVisible = HomeApps.shelfVisible(a);
         ui = a.getSharedPreferences("home-ui", Context.MODE_PRIVATE);
@@ -428,6 +431,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         recs.addListener(this);
         data.refreshIfStale();
         recs.refreshIfStale();
+        sports.refreshIfStale();
         Photos.importInbox(getContext(), ownReady);   // photos a computer just sent
         if (tvInputs != null) tvInputs.registerCallback(inputCallback, handler);
         handler.postDelayed(tick, 15_000);
@@ -2845,9 +2849,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      * whole background. Only it and the next are loaded (Recs keeps few full-screen images).
      */
     private void updateFeatured() {
-        List<Recs.Pick> list = recs.wanted();
+        // Big games first (live ones, then the next), then this hour's picks.
+        List<Recs.Pick> list = new ArrayList<>(sports.now());
+        list.addAll(recs.wanted());
         if (!samePicks(list, picks)) {
-            Recs.Pick was = currentPick();
+            // A new list starts over at its first pick (F1, a live game), unless you're on Watch: then you keep yours.
+            Recs.Pick was = zone == Z_HERO ? currentPick() : null;
             pickIndex = 0;
             for (int i = 0; was != null && i < list.size(); i++) {
                 if (Recs.key(list.get(i)).equals(Recs.key(was))) pickIndex = i;
@@ -3054,7 +3061,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (p == null) return;
         float alpha = heroFadeAt == 0 ? 1 : fadeEase(heroFadeAt, SystemClock.uptimeMillis());
         String app = Recs.serviceName(p);
-        String label = app == null || app.isEmpty() ? Recs.periodLabel() : Ui.trf("TRENDING ON {app}", "app", app.toUpperCase(Ui.locale()));
+        String label = p.label != null ? p.label : app == null || app.isEmpty() ? Recs.periodLabel()
+                : Ui.trf("TRENDING ON {app}", "app", app.toUpperCase(Ui.locale()));
         // Anchored at the bottom: the button stays put (where a tall logo needs it) and the details, the title (its
         // logo when TMDB has one, fit in a box; else written out) and the label stack up from it.
         boolean meta = p.meta != null && !p.meta.isEmpty();
