@@ -17,9 +17,11 @@ case ":$current:" in
     ":null:" | "::") list=$service ;;
     *) list="$current:$service" ;;
 esac
-# Off, then on: after an update the system can keep the old service unbound while the setting still names it.
+# Off, then on: after an update the service restarts but gets no events until it's switched off and on again, once
+# its process is back up (a few seconds).
+sleep 4
 adb -s "$tv" shell settings put secure enabled_accessibility_services '""' </dev/null
-sleep 1
+sleep 2
 adb -s "$tv" shell settings put secure enabled_accessibility_services "$list" </dev/null
 adb -s "$tv" shell settings put secure accessibility_enabled 1 </dev/null
 # The apps' "Continue watching" rows (WatchNext): a permission only adb can grant.

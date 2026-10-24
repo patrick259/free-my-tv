@@ -3,38 +3,36 @@
 Open items for the Insignia Fire TV build (branch `wip/fire-home-redirect`). Newest first.
 
 ## Inputs and power-on
-- [ ] **No sound on the Apple TV input when opened from FreeMyTV.** Picture works, sound doesn't; from Amazon's
-      own inputs menu both work. FreeMyTV shows the input in its own player (`InputPlayerActivity`, a `TvView`),
-      because Amazon's player needs a permission only Amazon apps get. Likely the audio routing for the HDMI port
-      isn't switched (Amazon's player does that, plus CEC). Look at how the TvView session sets audio, and at
-      Amazon's `NAVIGATE_TO_INPUTS` launcher action as a way to switch through Amazon instead.
-- [ ] **"Return to last input" on power-on no longer works.** Before: turn the TV on while Apple TV (HDMI 1) was
-      last used, and it switched to HDMI 1. Now FreeMyTV comes up every time. Probably the Home redirect firing on
-      Amazon's launcher at boot, before the TV switches input (and/or our input player not counting as "last input").
-      Fix: don't redirect at power-on when the TV is about to resume an input; remember the last input ourselves
-      and switch back to it.
-- [ ] **Fire TV remote doesn't control the Apple TV** in FreeMyTV's input player (CEC routing doesn't follow).
-      Same root cause as the sound issue, so the same fix may solve it.
+- [x] **Sound on inputs opened from FreeMyTV.** MediaTek's HDMI session holds the volume at 0 until the player sets one;
+      our player now takes audio focus and sets 1.0, as Amazon's does. Confirmed on Vsee.
+- [x] **"Return to last input" on power-on.** Fire OS records the input for power-on only when its own player had it.
+      FreeMyTV now remembers the input its player had at power-off and reopens it, and holds the Home redirect while
+      Amazon resumes one of its own (`PowerOn`). Tested with sleep/wake on Vsee.
+- [ ] **Fire TV remote doesn't control the Apple TV** (and opening it doesn't wake it) in FreeMyTV's input player.
+      HDMI-CEC commands need `android.permission.HDMI_CEC` (system apps only); Amazon's player and input-switch service
+      both refuse us. Options: use the Apple TV remote, or find another exported Amazon entry point.
 
 ## Scores page
-- [ ] **Make the F1 tab look better.** It's plain lists today: add team colors and driver photos or numbers,
-      a car/team stripe per row, the circuit map, the next session as a hero with a countdown, and the last
-      race's podium.
+- [x] **F1 tab redesign:** weekend card (round, circuit map, countdown, sessions with winners and flags), drivers with
+      team stripes, flags and gaps, constructors as bars. Driver seats are a 2026 table in `ScoresActivity.SEATS`.
 
 ## Hero
-- [ ] **F1: a track image for the current race plus the F1 logo**, instead of the news photo. Options: an aerial
-      or circuit-map image per Grand Prix (ESPN circuit data, Wikimedia Commons circuit maps, or a bundled set of
-      the season's circuits), with the F1 logo on top.
+- [x] **F1: circuit outline + F1 logo** on F1 red (F1's white track outlines, `Sports.TRACKS`; news photo as fallback).
 - [ ] Watch on a game opens the channel in YouTube TV (needs the `watch/<code>` for Fox, ABC, ESPN, CBS, NBC,
       NFL Network from tv.youtube.com/live).
 - [ ] Netflix title links get lost at its "Who's watching" screen on a cold start (works when Netflix is open).
+      Netflix draws its own UI (no accessibility text), so we can't see the profile screen; a resend-on-first-OK
+      would interrupt playback when Netflix was already open. Needs a decision.
 
 ## Remote and Home button
 - [ ] Remap remote app buttons: DirecTV → YouTube TV, Peacock → Paramount+ (need to press each while watching
       the log; also identify the "TV button" that reloads the current app).
 - [ ] Cover the ~5 s Home-button wait with a snapshot of the home screen (accessibility overlay, as Home on Fire
       does), swallowing presses while it's up.
-- [ ] Sometimes the first ←/→ after ↑ doesn't register (home screen and Scores page).
+- [ ] Sometimes the first ←/→ after ↑ doesn't register (home screen and Scores page). Works with adb key presses
+      (which skip the accessibility key filter), so it needs a real-remote repro: note when it happens.
+- [ ] Right after an update, Home on Amazon's home screen does nothing (no window change to react to) and a second
+      press opens Amazon's guide. `tools/firetv-install.sh` restarts the service; maybe redirect on service connect.
 
 ## Housekeeping
 - [ ] Merge `wip/fire-home-redirect` into `main` on the fork and tag a version.

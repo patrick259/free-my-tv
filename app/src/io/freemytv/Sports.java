@@ -463,12 +463,12 @@ final class Sports {
         for (float x = w * 0.35f; x < w * 1.3f; x += h * 0.06f) c.drawLine(x, 0, x - h * 0.5f, h, paint);
         Bitmap mark = trim(outline);
         // Clear of the clock and buttons above and the F1 badge below; never wider than the right half.
-        float th = h * 0.5f, tw = th * mark.getWidth() / mark.getHeight();
-        if (tw > w * 0.42f) {
-            tw = w * 0.42f;
+        float th = h * 0.4f, tw = th * mark.getWidth() / mark.getHeight();
+        if (tw > w * 0.36f) {
+            tw = w * 0.36f;
             th = tw * mark.getHeight() / mark.getWidth();
         }
-        float cx = w * 0.7f, cy = h * 0.38f;
+        float cx = w * 0.7f, cy = h * 0.42f;
         paint.setColor(0xFFFFFFFF);
         paint.setAlpha(235);
         c.drawBitmap(mark, null, new RectF(cx - tw / 2, cy - th / 2, cx + tw / 2, cy + th / 2), paint);

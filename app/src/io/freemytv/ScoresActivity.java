@@ -695,10 +695,14 @@ public class ScoresActivity extends Activity {
                 } finally {
                     c.disconnect();
                 }
-                if (b == null) return;
+                if (b == null) {
+                    AppLog.w("scores image undecodable: " + url);
+                    return;
+                }
                 logos.put(url, b);
                 main.post(() -> { if (url.equals(view.getTag())) view.setImageBitmap(b); });
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                AppLog.w("scores image " + url + ": " + e);
             }
         });
     }
