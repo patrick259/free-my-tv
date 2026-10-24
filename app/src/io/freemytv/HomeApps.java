@@ -91,6 +91,8 @@ final class HomeApps {
         {"netflix", "Netflix", "com.netflix.ninja", "E50914", "", "1"},
         {"youtube", "YouTube", "com.google.android.youtube.tv", "FF0033", "play", "1"},
         {"youtube", "YouTube", "com.amazon.firetv.youtube", "FF0033", "play", "1"},
+        {"youtubetv", "YouTube TV", "com.google.android.youtube.tvunplugged", "FF0033", "play", "1"},
+        {"youtubetv", "YouTube TV", "com.amazon.firetv.youtube.tv", "FF0033", "play", "1"},
         {"prime", "Prime Video", "com.amazon.amazonvideo.livingroom", "1A98FF", "tint", "0.96"},
         {"prime", "Prime Video", "com.amazon.firebat", "1A98FF", "tint", "0.96"},
         {"prime", "Prime Video", "com.amazon.avod", "1A98FF", "tint", "0.96"},
@@ -264,7 +266,7 @@ final class HomeApps {
     /** Live TV, the HDMI inputs with a device sending a signal, and All Apps. */
     static List<Item> shortcuts(Context c) {
         List<Item> items = new ArrayList<>();
-        if (liveTv(c) != null) {
+        if (liveTv(c) != null && !tunerHidden(c)) {
             items.add(shortcut(LIVE_TV, "live", Ui.tr("Live TV"), "tv"));
         }
         items.addAll(inputs(c));
@@ -331,7 +333,7 @@ final class HomeApps {
     /** For the bottom drawer: live TV and every HDMI input (the ones with no device are shown dimmed). */
     static List<Item> allInputs(Context c) {
         List<Item> items = new ArrayList<>();
-        if (liveTv(c) != null) items.add(shortcut(LIVE_TV, "live", Ui.tr("Live TV"), "tv"));
+        if (liveTv(c) != null && !tunerHidden(c)) items.add(shortcut(LIVE_TV, "live", Ui.tr("Live TV"), "tv"));
         items.addAll(inputs(c, true));
         return items;
     }
@@ -357,6 +359,8 @@ final class HomeApps {
             for (TvInputInfo info : tim.getTvInputList()) {
                 if (info.getType() != TvInputInfo.TYPE_HDMI) continue;
                 if (info.getParentId() == null) {
+                    // Hidden in the TV's input settings (tv_input_hidden_inputs): not on the home screen either.
+                    if (info.isHidden(c)) continue;
                     list.add(info);
                 } else {
                     devices.put(info.getParentId(), String.valueOf(info.loadLabel(c)).trim());
@@ -565,6 +569,19 @@ final class HomeApps {
         } catch (RuntimeException ignored) {
         }
         return system != null ? system : fallback;
+    }
+
+    /** The antenna input is hidden in the TV's input settings: no Live TV button (Live TV stays installed). */
+    private static boolean tunerHidden(Context c) {
+        String tuner = tunerInput(c);
+        TvInputManager tim = (TvInputManager) c.getSystemService(Context.TV_INPUT_SERVICE);
+        if (tuner == null || tim == null) return false;
+        try {
+            TvInputInfo info = tim.getTvInputInfo(tuner);
+            return info != null && info.isHidden(c);
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
     static List<String[]> launchable(Context c) {
