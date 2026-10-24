@@ -41,7 +41,8 @@ import java.util.concurrent.Executors;
  * Scores: the leagues in season (ESPN's public scoreboards, no key), Formula 1 first while its season runs. A tab per
  * league (← →); for F1 the race weekend (circuit map, countdown, sessions and winners), the drivers with their team
  * colors and flags, and the constructors as bars; for the others today's and
- * tomorrow's games (logos, score, status, network). Live scores refresh every 30 s. Back comes home.
+ * tomorrow's games (logos, score, status, network), your teams (favorite_teams) first with a star; in college football
+ * the games with a ranked team or one of yours. Live scores refresh every 30 s. Back comes home.
  */
 public class ScoresActivity extends Activity {
     /** {tab name, ESPN path}: the order of the tabs (F1 first). */
@@ -197,10 +198,14 @@ public class ScoresActivity extends Activity {
                 } else {
                     List<JSONObject> events = new ArrayList<>();
                     Calendar day = Calendar.getInstance();
+                    boolean college = league[1].contains("college");
                     for (int d = 0; d < 2; d++) {
-                        String path = league[1] + "/scoreboard?dates=" + ymd(day);
+                        // College: every FBS game (groups=80), then only those with a ranked team or one of yours.
+                        String path = league[1] + "/scoreboard?dates=" + ymd(day) + (college ? "&groups=80" : "");
                         JSONArray e = Sports.get(path).optJSONArray("events");
-                        for (int i = 0; e != null && i < e.length(); i++) events.add(e.getJSONObject(i));
+                        for (int i = 0; e != null && i < e.length(); i++) {
+                            if (!college || rankedOrFavorite(e.getJSONObject(i))) events.add(e.getJSONObject(i));
+                        }
                         day.add(Calendar.DAY_OF_YEAR, 1);
                     }
                     if (events.isEmpty()) {   // nothing today or tomorrow: ESPN's own pick (this week's games)
@@ -235,8 +240,10 @@ public class ScoresActivity extends Activity {
         scroll.setClipToPadding(false);
         GridLayout grid = new GridLayout(this);
         grid.setColumnCount(3);
-        // Live first, then upcoming by start, then finished.
+        // Your teams first, then live, then upcoming by start, then finished.
         events.sort((a, b) -> {
+            boolean fa = mine(a), fb = mine(b);
+            if (fa != fb) return fa ? -1 : 1;
             int sa = order(a), sb = order(b);
             return sa != sb ? Integer.compare(sa, sb) : a.optString("date").compareTo(b.optString("date"));
         });
@@ -251,6 +258,28 @@ public class ScoresActivity extends Activity {
         }
         scroll.addView(grid);
         return scroll;
+    }
+
+    private static JSONArray competitors(JSONObject e) {
+        JSONArray c = e.optJSONArray("competitions");
+        return c == null || c.length() == 0 ? null : c.optJSONObject(0).optJSONArray("competitors");
+    }
+
+    /** A game of one of your teams (favorite_teams). */
+    private static boolean mine(JSONObject e) {
+        JSONArray teams = competitors(e);
+        for (int i = 0; teams != null && i < teams.length(); i++) if (Sports.favorite(teams.optJSONObject(i))) return true;
+        return false;
+    }
+
+    private static boolean rankedOrFavorite(JSONObject e) {
+        if (mine(e)) return true;
+        JSONArray teams = competitors(e);
+        for (int i = 0; teams != null && i < teams.length(); i++) {
+            JSONObject r = teams.optJSONObject(i).optJSONObject("curatedRank");
+            if (r != null && r.optInt("current", 99) <= 25) return true;
+        }
+        return false;
     }
 
     private static int order(JSONObject e) {
@@ -317,6 +346,7 @@ public class ScoresActivity extends Activity {
         logo(logo, team.optString("logo", null));
         int rank = competitor.optJSONObject("curatedRank") == null ? 99 : competitor.getJSONObject("curatedRank").optInt("current", 99);
         String name = (rank <= 25 ? rank + "  " : "") + team.optString("shortDisplayName", team.optString("displayName"));
+        if (Sports.favorite(competitor)) name += "  ★";
         TextView n = text(name, 28, bright ? INK : DIM, Ui.semibold);
         n.setSingleLine();
         n.setEllipsize(TextUtils.TruncateAt.END);

@@ -34,9 +34,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Big games for the featured hero, from ESPN's public scoreboards (no key): the World Series (MLB's postseason), NFL
- * games, college football games with a ranked team, and Formula 1's qualifying, sprint and race. Each shows from the
- * day before until it ends, live ones first; Watch opens the app that carries it (a TV network → YouTube TV).
+ * Big games for the featured hero, most important first, from ESPN's public scoreboards (no key): Formula 1's
+ * qualifying, sprint and race, then the postseason (the World Series, NFL playoffs, the College Football Playoff),
+ * Monday Night Football, your teams' games (favorite_teams) and college games between two ranked teams; ordinary
+ * games stay out, and so does anything no app on the TV carries. Each shows from the day before until it ends; Watch
+ * opens the app that carries it (a TV network → YouTube TV).
  * The hero's picture is drawn here: the two teams' colors and logos (the league's logo for F1).
  */
 final class Sports {
@@ -96,7 +98,9 @@ final class Sports {
     /** Broadcast and cable networks YouTube TV carries. */
     private static final String[] LIVE_TV = {"fox", "cbs", "nbc", "abc", "espn", "espn2", "espnu", "fs1", "fs2", "tbs",
             "tnt", "trutv", "nfl net", "nfl network", "mlb net", "mlb network", "sec network", "secn", "acc network",
-            "accn", "big ten network", "btn", "cw", "usa net", "usa network"};
+            "accn", "big ten network", "btn", "cw", "usa net", "usa network",
+            // Roseville's regional sports networks (YouTube TV carries both there)
+            "nbcs-ca", "nbc sports california", "nbcs california", "nbcs-ba", "nbc sports ba", "nbc sports bay area"};
     private static final String[] YOUTUBE_TV = {"com.amazon.firetv.youtube.tv", "com.google.android.youtube.tvunplugged"};
 
     /** One game (or F1 session) as the hero needs it. */
@@ -106,6 +110,7 @@ final class Sports {
         String photo;           // F1 without a known circuit: a photo from this race weekend (ESPN's news)
         int awayColor, homeColor;
         long start;
+        int weight;             // importance in the hero: the postseason, Monday Night Football, two ranked teams
         String state, detail;   // "pre", "in", "post"; ESPN's "Top 5th", "Q3 4:12"
     }
 
@@ -134,9 +139,8 @@ final class Sports {
         }
         Collections.sort(out, (a, b) -> {
             boolean fa = "F1".equals(a.game.league), fb = "F1".equals(b.game.league);
-            if (fa != fb) return fa ? -1 : 1;       // a Formula 1 session always leads
-            boolean wa = a.label != null && a.label.startsWith("WORLD SERIES"), wb = b.label != null && b.label.startsWith("WORLD SERIES");
-            if (wa != wb) return wa ? -1 : 1;       // then the World Series
+            if (fa != fb) return fa ? -1 : 1;       // a Formula 1 session always leads, then the biggest games
+            if (a.game.weight != b.game.weight) return Integer.compare(b.game.weight, a.game.weight);
             boolean la = "in".equals(a.game.state), lb = "in".equals(b.game.state);
             return la != lb ? (la ? -1 : 1) : Long.compare(a.game.start, b.game.start);
         });
@@ -156,8 +160,9 @@ final class Sports {
                 for (String d : new String[] {today, tomorrow}) {
                     mlb(list, get("baseball/mlb/scoreboard?dates=" + d));
                     teamGames(list, get("football/nfl/scoreboard?dates=" + d), "NFL", false, MAX_NFL);
+                    teamGames(list, get("football/college-football/scoreboard?dates=" + d + "&groups=80"), Ui.tr("COLLEGE FOOTBALL"), true, MAX_COLLEGE);
+                    teamGames(list, get("hockey/nhl/scoreboard?dates=" + d), "NHL", false, MAX_NFL);
                 }
-                teamGames(list, get("football/college-football/scoreboard"), Ui.tr("COLLEGE FOOTBALL"), true, MAX_COLLEGE);
                 f1(list, get("racing/f1/scoreboard"));
                 picks = list;
                 fetchedAt = System.currentTimeMillis();
@@ -182,42 +187,82 @@ final class Sports {
         for (int i = 0; events != null && i < events.length(); i++) {
             JSONObject e = events.getJSONObject(i), c = e.getJSONArray("competitions").getJSONObject(0);
             JSONObject season = e.optJSONObject("season") != null ? e.optJSONObject("season") : board.optJSONObject("season");
-            if (season == null || season.optInt("type") != 3) continue;
+            boolean post = season != null && season.optInt("type") == 3;
+            if (!post && !hasFavorite(c.optJSONArray("competitors"))) continue;     // the regular season: your teams only
             String note = note(c);
-            Recs.Pick p = teamPick(e, c, note.isEmpty() ? Ui.tr("MLB POSTSEASON") : note.toUpperCase(Ui.locale()), false);
-            if (p != null) add(out, p);
+            Recs.Pick p = teamPick(e, c, !post ? "MLB" : note.isEmpty() ? Ui.tr("MLB POSTSEASON") : note.toUpperCase(Ui.locale()), false);
+            if (p == null) continue;
+            p.game.weight = !post ? FAVORITE : POSTSEASON + (note.startsWith("World Series") ? FINAL : 0);
+            add(out, p);
         }
     }
 
+    /** Hero weights: the postseason, a championship on top of it, Monday Night Football, two ranked college teams. */
+    private static final int POSTSEASON = 5000, FINAL = 1000, MONDAY_NIGHT = 3000, FAVORITE = 2500, RANKED_PAIR = 2000;
+
+    /** One of your teams (favorite_teams: ESPN's full names, "Boston Red Sox")? */
+    static boolean favorite(JSONObject competitor) {
+        JSONObject team = competitor == null ? null : competitor.optJSONObject("team");
+        if (team == null || Config.FAVORITE_TEAMS.isEmpty()) return false;
+        String name = team.optString("displayName").trim();
+        for (String f : Config.FAVORITE_TEAMS.split(",")) if (!f.trim().isEmpty() && f.trim().equalsIgnoreCase(name)) return true;
+        return false;
+    }
+
+    private static boolean hasFavorite(JSONArray competitors) {
+        for (int i = 0; competitors != null && i < competitors.length(); i++) if (favorite(competitors.optJSONObject(i))) return true;
+        return false;
+    }
+
     /**
-     * Football: NFL games (national windows first: night games, then the rest by start), college games with a ranked
-     * team (the best matchups first: both ranked, then the higher rank). At most `max` of each per day.
+     * Football and hockey, only the games worth the hero: the postseason (the Super Bowl, the College Football Playoff
+     * and its title game first), Monday Night Football, your teams, and college games between two ranked teams (the
+     * better pair first). At most `max` of each league a day.
      */
-    private void teamGames(List<Recs.Pick> out, JSONObject board, String league, boolean ranked, int max) throws JSONException {
+    private void teamGames(List<Recs.Pick> out, JSONObject board, String league, boolean college, int max) throws JSONException {
         JSONArray events = board.optJSONArray("events");
-        List<Object[]> scored = new ArrayList<>();
+        List<Recs.Pick> chosen = new ArrayList<>();
         for (int i = 0; events != null && i < events.length(); i++) {
             JSONObject e = events.getJSONObject(i), c = e.getJSONArray("competitions").getJSONObject(0);
             JSONArray teams = c.getJSONArray("competitors");
-            int best = 99, ranks = 0;
+            int ranks = 0, sum = 0;
             for (int t = 0; t < teams.length(); t++) {
                 int r = teams.getJSONObject(t).optJSONObject("curatedRank") == null ? 99
                         : teams.getJSONObject(t).getJSONObject("curatedRank").optInt("current", 99);
                 if (r <= 25) ranks++;
-                best = Math.min(best, r);
+                sum += r;
             }
-            if (ranked && ranks == 0) continue;
-            long start = time(e.optString("date"));
-            Calendar local = Calendar.getInstance();
-            local.setTimeInMillis(start);
-            boolean night = local.get(Calendar.HOUR_OF_DAY) >= 17;
-            double score = ranked ? ranks * 100 - best : (night ? 100 : 0) - start / 1e12;
             String note = note(c);
-            Recs.Pick p = teamPick(e, c, note.isEmpty() ? league : (league + " · " + note).toUpperCase(Ui.locale()), ranked);
-            if (p != null) scored.add(new Object[] {score, p});
+            JSONObject season = e.optJSONObject("season") != null ? e.optJSONObject("season") : board.optJSONObject("season");
+            boolean post = season != null && season.optInt("type") == 3;
+            Calendar local = Calendar.getInstance();
+            local.setTimeInMillis(time(e.optString("date")));
+            boolean monday = "NFL".equals(league) && local.get(Calendar.DAY_OF_WEEK) == Calendar.MONDAY && local.get(Calendar.HOUR_OF_DAY) >= 16;
+            boolean fav = hasFavorite(teams);
+            int weight;
+            if (post) {
+                // Bowls are the postseason too: only the Playoff (and the title game) count as big, the rest when ranked.
+                String n = note.toLowerCase(Locale.ROOT);
+                boolean big = !college || n.contains("playoff") || n.contains("championship");
+                if (!big && ranks < 2 && !fav) continue;
+                weight = (big ? POSTSEASON : RANKED_PAIR) + (n.contains("super bowl") || n.contains("national championship") ? FINAL : 0);
+            } else if (monday) {
+                weight = MONDAY_NIGHT;
+            } else if (fav) {
+                weight = FAVORITE;
+            } else if (college && ranks == 2) {
+                weight = RANKED_PAIR + 100 - sum;     // #3 vs #5 above #18 vs #22
+            } else {
+                continue;
+            }
+            String label = monday ? Ui.tr("MONDAY NIGHT FOOTBALL") : note.isEmpty() ? league : (league + " · " + note).toUpperCase(Ui.locale());
+            Recs.Pick p = teamPick(e, c, label, college);
+            if (p == null) continue;
+            p.game.weight = weight;
+            chosen.add(p);
         }
-        Collections.sort(scored, (a, b) -> Double.compare((double) b[0], (double) a[0]));
-        for (int i = 0; i < scored.size() && i < max; i++) add(out, (Recs.Pick) scored.get(i)[1]);
+        Collections.sort(chosen, (x, y) -> Integer.compare(y.game.weight, x.game.weight));
+        for (int i = 0; i < chosen.size() && i < max; i++) add(out, chosen.get(i));
     }
 
     /** Formula 1: this weekend's qualifying, sprint and race (not the practice sessions). */

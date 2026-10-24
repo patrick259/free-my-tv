@@ -69,6 +69,7 @@ final class Config {
     static final boolean HIDE_HORROR = $HORROR;
     static final boolean HIDE_ANIMATED_SHOWS = $TOONS;
     static final boolean SHOW_SPORTS = $SPORTS;
+    static final String FAVORITE_TEAMS = "$(prop favorite_teams '')";
 }
 EOF
 
