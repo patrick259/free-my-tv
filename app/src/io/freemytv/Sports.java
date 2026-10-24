@@ -135,6 +135,8 @@ final class Sports {
         Collections.sort(out, (a, b) -> {
             boolean fa = "F1".equals(a.game.league), fb = "F1".equals(b.game.league);
             if (fa != fb) return fa ? -1 : 1;       // a Formula 1 session always leads
+            boolean wa = a.label != null && a.label.startsWith("WORLD SERIES"), wb = b.label != null && b.label.startsWith("WORLD SERIES");
+            if (wa != wb) return wa ? -1 : 1;       // then the World Series
             boolean la = "in".equals(a.game.state), lb = "in".equals(b.game.state);
             return la != lb ? (la ? -1 : 1) : Long.compare(a.game.start, b.game.start);
         });
@@ -171,12 +173,16 @@ final class Sports {
 
     // MARK: - Choosing the games
 
-    /** The postseason only: the World Series, the league championships ("World Series - Game 2"). */
+    /**
+     * The postseason only: the World Series, the league championships ("World Series - Game 2"). Each game's own season
+     * type: a scoreboard asked for by date (?dates=) has no season of its own.
+     */
     private void mlb(List<Recs.Pick> out, JSONObject board) throws JSONException {
-        if (board.optJSONObject("season") == null || board.getJSONObject("season").optInt("type") != 3) return;
         JSONArray events = board.optJSONArray("events");
         for (int i = 0; events != null && i < events.length(); i++) {
             JSONObject e = events.getJSONObject(i), c = e.getJSONArray("competitions").getJSONObject(0);
+            JSONObject season = e.optJSONObject("season") != null ? e.optJSONObject("season") : board.optJSONObject("season");
+            if (season == null || season.optInt("type") != 3) continue;
             String note = note(c);
             Recs.Pick p = teamPick(e, c, note.isEmpty() ? Ui.tr("MLB POSTSEASON") : note.toUpperCase(Ui.locale()), false);
             if (p != null) add(out, p);
