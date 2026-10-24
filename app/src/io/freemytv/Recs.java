@@ -47,6 +47,8 @@ final class Recs {
         String kind;            // "movie" or "tv"
         String title, backdrop, meta = "", app, pkg;
         String link;            // opens the title in its app (looked up with Watchmode), or null: the app's home
+        String logo;            // TMDB's title logo (file path), or null: the title is written out
+        boolean scary;          // horror (by genre or TMDB keyword): left out with hide_horror=true
         boolean detailed;
         java.io.File photo;     // one of your own photos (Photos): no title, no caption
     }
@@ -58,9 +60,13 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/" + (Backdrop.W <= 1280 ? "w1280" : "original");
     /** TMDB's Animation genre (movies and shows: cartoons and anime), left out with hide_animation=true. */
     private static final int ANIMATION = 16;
+    /** TMDB's Horror genre (movies only: shows have none, so their keywords count too), left out with hide_horror=true. */
+    private static final int HORROR = 27;
+    /** The logos: TMDB's 500-wide copy is sharper than the hero ever draws one. */
+    private static final String LOGOS = "https://image.tmdb.org/t/p/w500";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 4;
+    private static final int CACHE_VERSION = 5;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     /** Service name on TMDB (part of the name, lowercase) → TV app (HomeApps key, package). */
     private static final String[][] SERVICES = {
@@ -197,7 +203,7 @@ final class Recs {
         if (!hasKey(context)) return list;    // no TMDB key: no recommendations
         Map<String, Boolean> have = new HashMap<>();   // one look per app, not per title (this runs every 15 s)
         for (Pick p : picks) {
-            if ((kind == null || kind.equals(p.kind))
+            if ((kind == null || kind.equals(p.kind)) && !(Config.HIDE_HORROR && p.scary)
                     && (!p.detailed || (p.pkg != null && have.computeIfAbsent(p.pkg, this::installed)))) list.add(p);   // app missing: skip
         }
         if (list.isEmpty()) return list;
@@ -330,6 +336,7 @@ final class Recs {
         for (Pick p : wanted()) if (hasImage(p) && seen.add(franchise(p.title))) out.add(p);
         Map<String, Boolean> have = new HashMap<>();
         for (Pick p : picks) {
+            if (Config.HIDE_HORROR && p.scary) continue;
             if (p.detailed && p.pkg != null && have.computeIfAbsent(p.pkg, this::installed) && hasImage(p)
                     && seen.add(franchise(p.title))) out.add(p);
         }
@@ -419,7 +426,7 @@ final class Recs {
         for (int id : services.keySet()) ids.append(ids.length() == 0 ? "" : "|").append(id);
         String common = "&language=" + lang() + "&watch_region=" + REGION + "&with_watch_monetization_types=flatrate&include_adult=false"
                 + "&sort_by=popularity.desc&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8")
-                + (Config.HIDE_ANIMATION ? "&without_genres=" + ANIMATION : "");
+                + without();
         // 1. Trending this week (TMDB goes by what people are watching and searching for right now), only what is
         //    on one of the TV's services: the details say where (and are then ready).
         List<Pick> hotMovies = new ArrayList<>(), hotShows = new ArrayList<>();
@@ -482,16 +489,43 @@ final class Recs {
         return String.format(Locale.US, "%04d-%02d-%02d", cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH));
     }
 
+    /** The genres the person left out (discover's without_genres: a title with any of them is skipped). */
+    private static String without() {
+        List<String> ids = new ArrayList<>();
+        if (Config.HIDE_ANIMATION) ids.add(String.valueOf(ANIMATION));
+        if (Config.HIDE_HORROR) ids.add(String.valueOf(HORROR));
+        return ids.isEmpty() ? "" : "&without_genres=" + String.join(",", ids);
+    }
+
     private static void add(List<Pick> list, JSONObject o, String kind) {
         String backdrop = o.optString("backdrop_path", "");
         if (backdrop.isEmpty() || "null".equals(backdrop)) return;
         if (Config.HIDE_ANIMATION && animated(o)) return;
+        if (Config.HIDE_HORROR && hasGenre(o.optJSONArray("genre_ids"), HORROR)) return;
         Pick p = new Pick();
         p.id = o.optInt("id");
         p.kind = kind;
         p.title = o.optString(kind.equals("movie") ? "title" : "name");
         p.backdrop = backdrop;
         list.add(p);
+    }
+
+    private static boolean hasGenre(JSONArray ids, int genre) {
+        for (int i = 0; ids != null && i < ids.length(); i++) if (ids.optInt(i) == genre) return true;
+        return false;
+    }
+
+    /** Horror by genre, or (shows have no Horror genre) by TMDB keywords: "horror", "slasher", "supernatural horror"... */
+    private static boolean scary(JSONObject o) {
+        JSONArray genres = o.optJSONArray("genres");
+        for (int i = 0; genres != null && i < genres.length(); i++) if (genres.optJSONObject(i).optInt("id") == HORROR) return true;
+        JSONObject k = o.optJSONObject("keywords");
+        JSONArray words = k == null ? null : k.has("keywords") ? k.optJSONArray("keywords") : k.optJSONArray("results");
+        for (int i = 0; words != null && i < words.length(); i++) {
+            String w = words.optJSONObject(i).optString("name").toLowerCase(Locale.ROOT);
+            if (w.contains("horror") || w.contains("slasher")) return true;
+        }
+        return false;
     }
 
     private static boolean animated(JSONObject o) {
@@ -503,10 +537,12 @@ final class Recs {
     /** Genre, runtime (or seasons) and the service it's on, among the ones the TV has. */
     private void fetchDetails(Pick p) throws Exception {
         JSONObject o = get("/" + p.kind + "/" + p.id
-                + "?language=" + lang() + "&append_to_response=watch/providers,images&include_image_language=null," + Ui.language.replaceAll("-.*", "") + ",en");
+                + "?language=" + lang() + "&append_to_response=watch/providers,images,keywords&include_image_language=null," + Ui.language.replaceAll("-.*", "") + ",en");
         p.title = title(p, o);
         String best = bestBackdrop(o.optJSONObject("images"));
         if (best != null) p.backdrop = best;
+        p.logo = bestLogo(o.optJSONObject("images"));
+        p.scary = scary(o);
         List<String> parts = new ArrayList<>();
         JSONArray genres = o.optJSONArray("genres");
         if (p.kind.equals("tv")) parts.add(Ui.tr("Series"));
@@ -591,6 +627,105 @@ final class Recs {
         return best;
     }
 
+    /**
+     * The title's logo: in the TV's language, else English, else none (a logo in another language reads worse than the
+     * written title); PNGs only (TMDB also has SVGs), the best voted.
+     */
+    private static String bestLogo(JSONObject images) {
+        JSONArray list = images == null ? null : images.optJSONArray("logos");
+        String lang = Ui.language.replaceAll("-.*", ""), best = null;
+        double bestScore = -1;
+        for (int i = 0; list != null && i < list.length(); i++) {
+            JSONObject l = list.optJSONObject(i);
+            String path = l == null ? "" : l.optString("file_path", "");
+            if (!path.endsWith(".png")) continue;
+            String in = l.optString("iso_639_1", "");
+            double score = in.equals(lang) ? 2 : in.equals("en") ? 1 : -1;
+            if (score < 0) continue;
+            score = score * 100 + l.optDouble("vote_average", 0);
+            if (score > bestScore) {
+                bestScore = score;
+                best = path;
+            }
+        }
+        return best;
+    }
+
+    private final Map<String, Bitmap> logos = new HashMap<>();
+    private final Set<String> logosPending = new HashSet<>();
+
+    /**
+     * The pick's logo, ready to draw (white when the logo itself is dark: the hero's text sits on a dark scrim), or
+     * null: loads it in the background and notifies; until then (or without one) the title is written out.
+     */
+    Bitmap logo(Pick p) {
+        if (p == null || p.logo == null) return null;
+        final String path = p.logo;
+        synchronized (logos) {
+            if (logos.containsKey(path)) return logos.get(path);
+            if (!logosPending.add(path)) return null;
+        }
+        io.execute(() -> {
+            Bitmap b = null;
+            try {
+                File f = new File(new File(context.getCacheDir(), "logos"), path.replace("/", ""));
+                if (!f.exists()) {
+                    //noinspection ResultOfMethodCallIgnored
+                    f.getParentFile().mkdirs();
+                    HttpURLConnection c = (HttpURLConnection) new URL(LOGOS + path).openConnection();
+                    c.setConnectTimeout(8000);
+                    c.setReadTimeout(20000);
+                    File part = new File(f.getPath() + ".part");
+                    try (InputStream in = c.getInputStream(); FileOutputStream out = new FileOutputStream(part)) {
+                        byte[] buffer = new byte[16384];
+                        int n;
+                        while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+                    } finally {
+                        c.disconnect();
+                    }
+                    if (!part.renameTo(f)) throw new IOException("couldn't save the logo");
+                }
+                b = BitmapFactory.decodeFile(f.getPath());
+                if (b != null && dark(b)) b = white(b);
+            } catch (IOException | RuntimeException | OutOfMemoryError e) {
+                AppLog.w("title logo: " + e.getMessage());
+            }
+            synchronized (logos) {
+                logos.put(path, b);     // null too: that title is written out, not tried again this run
+                logosPending.remove(path);
+                while (logos.size() > 12) logos.remove(logos.keySet().iterator().next());
+            }
+            if (b != null) notifyListeners();
+        });
+        return null;
+    }
+
+    /** Most of the logo's ink is dark (a black wordmark): it would vanish on the scrim. */
+    private static boolean dark(Bitmap b) {
+        Bitmap small = Bitmap.createScaledBitmap(b, Math.max(1, b.getWidth() / 8), Math.max(1, b.getHeight() / 8), true);
+        double sum = 0, ink = 0;
+        for (int y = 0; y < small.getHeight(); y++) {
+            for (int x = 0; x < small.getWidth(); x++) {
+                int c = small.getPixel(x, y), a = c >>> 24;
+                if (a < 128) continue;
+                sum += (0.2126 * ((c >> 16) & 255) + 0.7152 * ((c >> 8) & 255) + 0.0722 * (c & 255)) / 255;
+                ink++;
+            }
+        }
+        if (small != b) small.recycle();
+        return ink > 0 && sum / ink < 0.3;
+    }
+
+    /** The logo's shape in white (keeps its transparency). */
+    private static Bitmap white(Bitmap b) {
+        Bitmap out = Bitmap.createBitmap(b.getWidth(), b.getHeight(), Bitmap.Config.ARGB_8888);
+        android.graphics.Paint paint = new android.graphics.Paint();
+        paint.setColorFilter(new android.graphics.PorterDuffColorFilter(0xFFFFFFFF, android.graphics.PorterDuff.Mode.SRC_IN));
+        new android.graphics.Canvas(out).drawBitmap(b, 0, 0, paint);
+        b.recycle();
+        return out;
+    }
+
     /** The SERVICES row for a TMDB name: the installed one first, when a service has more than one package. */
     private String[] service(String name, int providerId) {
         String n = name.toLowerCase(Locale.ROOT);
@@ -623,7 +758,8 @@ final class Recs {
     }
 
     private long sourceStamp() {
-        long stamp = (Config.TMDB_KEY.hashCode() * 31L + REGION.hashCode()) * 31L + (Config.HIDE_ANIMATION ? 1 : 0);
+        long stamp = (Config.TMDB_KEY.hashCode() * 31L + REGION.hashCode()) * 31L + (Config.HIDE_ANIMATION ? 1 : 0)
+                + (Config.HIDE_HORROR ? 2 : 0);
         for (String[] service : SERVICES) stamp = stamp * 31L + (installed(service[2]) ? service[2].hashCode() : 0);
         return stamp;
     }
@@ -813,7 +949,7 @@ final class Recs {
             for (Pick p : picks) {
                 a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop).put("link", p.link == null ? "" : p.link)
                         .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
-                        .put("detailed", p.detailed));
+                        .put("detailed", p.detailed).put("logo", p.logo == null ? "" : p.logo).put("scary", p.scary));
             }
             SharedPreferences.Editor e = cache.edit().putString("picks", a.toString()).putInt("period", period).putLong("listAt", listAt)
                     .putString("language", listLanguage)
@@ -842,6 +978,8 @@ final class Recs {
             p.app = o.optString("app").isEmpty() ? null : o.optString("app");
             p.pkg = o.optString("pkg").isEmpty() ? null : o.optString("pkg");
             p.detailed = o.optBoolean("detailed");
+            p.logo = o.optString("logo").isEmpty() ? null : o.optString("logo");
+            p.scary = o.optBoolean("scary");
             out.add(p);
         }
         return out;

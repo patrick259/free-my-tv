@@ -2845,11 +2845,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         showFeatured();
     }
 
-    /** The current pick's photo (once it is ready; Recs notifies) and the next one loading. */
+    /** The current pick's photo (once it is ready; Recs notifies) and its neighbors' loading, for ← and →. */
     private void showFeatured() {
         Backdrop b = recs.backdrop(currentPick());
         if (b != null) showBackdrop(b);
-        if (picks.size() > 1) recs.backdrop(picks.get((pickIndex + 1) % picks.size()));
+        recs.logo(currentPick());
+        if (picks.size() > 1) {
+            Recs.Pick next = picks.get((pickIndex + 1) % picks.size()), prev = picks.get((pickIndex - 1 + picks.size()) % picks.size());
+            recs.backdrop(next);
+            recs.backdrop(prev);
+            recs.logo(next);
+            recs.logo(prev);
+        }
         heroDirty = true;
         spoken.focusMoved();
     }
@@ -2979,7 +2986,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     // Featured hero: one line of time, date and weather at the top; the pick over its photo, anchored above the shelf.
     private static final float F_TOP_BASE = 116, F_LABEL_BASE = 392, F_TITLE_TOP = 418, F_TITLE_W = 980;
-    private static final float F_BUTTON_H = 68, F_BUTTON_PAD = 34;
+    private static final float F_BUTTON_H = 68, F_BUTTON_PAD = 34, F_LOGO_W = 720, F_LOGO_H = 200;
     private StaticLayout featuredTitle;
     private String featuredTitleText;
 
@@ -3009,6 +3016,26 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         String app = Recs.serviceName(p);
         String label = app == null || app.isEmpty() ? Recs.periodLabel() : Ui.trf("TRENDING ON {app}", "app", app.toUpperCase(Ui.locale()));
         text(c, label, x, F_LABEL_BASE * k, labelPaint, 0xC7FFFFFF, alpha);
+        // The title's own logo when TMDB has one (fit in a box, never upscaled past 1.5×); else the title written out.
+        float y;
+        Bitmap logo = recs.logo(p);
+        if (logo != null) {
+            float maxW = F_LOGO_W * k, maxH = F_LOGO_H * k;
+            float scale = Math.min(Math.min(maxW / logo.getWidth(), maxH / logo.getHeight()), 1.5f * k);
+            float lw = logo.getWidth() * scale, lh = logo.getHeight() * scale, top = F_TITLE_TOP * k;
+            tmp.set(x, top, x + lw, top + lh);
+            bitmapPaint.setAlpha(Math.round(255 * alpha));
+            c.drawBitmap(logo, null, tmp, bitmapPaint);
+            bitmapPaint.setAlpha(255);
+            y = top + lh;
+        } else {
+            y = drawFeaturedTitle(c, p, x, alpha);
+        }
+        drawFeaturedRest(c, p, app, x, y, alpha);
+    }
+
+    /** The title written out (up to two lines); returns where it ends. */
+    private float drawFeaturedTitle(Canvas c, Recs.Pick p, float x, float alpha) {
         String title = p.title == null ? "" : p.title;
         if (featuredTitle == null || !title.equals(featuredTitleText)) {
             featuredTitleText = title;
@@ -3026,13 +3053,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         featuredTitle.draw(c);
         c.restore();
         titlePaint.setAlpha(255);
-        float y = F_TITLE_TOP * k + featuredTitle.getHeight();
+        return F_TITLE_TOP * k + featuredTitle.getHeight();
+    }
+
+    private void drawFeaturedRest(Canvas c, Recs.Pick p, String app, float x, float y, float alpha) {
         if (p.meta != null && !p.meta.isEmpty()) {
             y += 52 * k;
             text(c, p.meta, x, y, metaPaint, 0xD1FFFFFF, alpha);
         }
-        // The button: glass at rest; white with dark text when focused (the tvOS focus), growing a little.
+        // The button: glass at rest; white with dark text when focused (the tvOS focus), growing a little. The dots sit
+        // on its line, to the right: a tall logo can't push them under the shelf.
         y += 40 * k;
+        float dotsX = x, dotsY = y + F_BUTTON_H * k / 2;
         if (p.pkg != null) {
             String watch = app == null || app.isEmpty() ? Ui.tr("Watch") : Ui.trf("Watch on {app}", "app", app);
             float f = Ui.clamp(heroFocus.value), s = 1 + 0.06f * f;
@@ -3053,11 +3085,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             buttonPaint.setColor(blend(0xFFFFFFFF, INK, f));
             c.drawText(watch, cell.centerX() - buttonPaint.measureText(watch) / 2, cell.centerY() + Ui.halfCap(buttonPaint), buttonPaint);
             buttonPaint.setColor(INK);
-            y += bh;
+            dotsX = heroButton.right + 36 * k;
         }
         // Dots: which of the picks this is (the current one is a short bar).
         if (picks.size() > 1) {
-            float dy = y + 44 * k, dot = 10 * k, gap = 12 * k, dx = x;
+            float dot = 10 * k, gap = 12 * k, dx = dotsX, dy = dotsY - dot / 2;
             for (int i = 0; i < picks.size(); i++) {
                 float w = i == pickIndex ? dot * 3 : dot;
                 fill.setColor(i == pickIndex ? 0xF2FFFFFF : 0x73FFFFFF);
