@@ -60,6 +60,8 @@ final class HomeApps {
     static final int INPUTS = 7;
     /** Fire TV: the Amazon Appstore. */
     static final int APPSTORE = 8;
+    /** The Scores page (ScoresActivity). */
+    static final int SCORES = 9;
     static final String VENEZIA = "com.amazon.venezia";
     /** Image size of each card (16:9; on screen it shows up to ~330 px wide). */
     static final int TILE_W = 384, TILE_H = 216;
@@ -231,14 +233,22 @@ final class HomeApps {
 
     // MARK: - Top buttons (the round ones at the top right)
 
-    static final String TOP_LIVE = "live", TOP_INPUTS = "inputs", TOP_SETTINGS = "settings";
-    static final List<String> TOP_DEFAULT = Collections.unmodifiableList(java.util.Arrays.asList(TOP_LIVE, TOP_INPUTS, TOP_SETTINGS));
+    static final String TOP_LIVE = "live", TOP_INPUTS = "inputs", TOP_SETTINGS = "settings", TOP_SCORES = "scores";
+    static final List<String> TOP_DEFAULT = Collections.unmodifiableList(java.util.Arrays.asList(TOP_SCORES, TOP_LIVE, TOP_INPUTS, TOP_SETTINGS));
     static final int MAX_TOP = TOP_DEFAULT.size();
 
     /** The keys of the top buttons, in order (Settings > Top Buttons; by default Live TV, HDMI Inputs, Settings). */
     static List<String> topButtonKeys() {
         List<String> saved = Prefs.topButtons();
         if (saved == null) return TOP_DEFAULT;
+        // Scores came after the list was saved: it joins once, first; taken off after that, it stays off.
+        if (!Prefs.scoresOffered()) {
+            Prefs.setScoresOffered();
+            if (!saved.contains(TOP_SCORES)) {
+                saved.add(0, TOP_SCORES);
+                Prefs.setTopButtons(saved);
+            }
+        }
         List<String> keys = new ArrayList<>();
         for (String key : saved) if (TOP_DEFAULT.contains(key) && !keys.contains(key)) keys.add(key);
         return keys;
@@ -255,6 +265,7 @@ final class HomeApps {
         switch (key) {
             case TOP_LIVE: return action(LIVE_TV, TOP_LIVE, Ui.tr("light|Live TV"), "live_tv");
             case TOP_INPUTS: return action(INPUTS, TOP_INPUTS, Ui.tr("HDMI Inputs"), "hdmi");
+            case TOP_SCORES: return action(SCORES, TOP_SCORES, Ui.tr("Scores"), "scoreboard");
             default: return action(SETTINGS, TOP_SETTINGS, Ui.tr("light|Settings"), "settings");
         }
     }
@@ -300,6 +311,7 @@ final class HomeApps {
     static List<Item> drawerShortcuts(Context c) {
         List<Item> items = new ArrayList<>();
         items.add(shortcut(ALL_APPS, "all", Ui.tr("All Apps"), "apps"));
+        items.add(shortcut(SCORES, "scores", Ui.tr("Scores"), "scoreboard"));
         items.add(shortcut(SETTINGS, "settings", Ui.tr("Home Settings"), "settings"));
         items.add(shortcut(ANDROID_SETTINGS, "tv-settings", Ui.tr("TV Settings"), "tv_settings"));
         // HY300 projectors (Hotack, Allwinner H713): keystone and focus live in the maker's settings app, and the
@@ -506,6 +518,9 @@ final class HomeApps {
                 break;
             case SETTINGS:
                 intent = new Intent().setComponent(new ComponentName(a, SettingsActivity.class));
+                break;
+            case SCORES:
+                intent = new Intent(a, ScoresActivity.class);
                 break;
             case APPSTORE:
                 // The store's own home (its links and launcher entry go through Amazon's home screen instead).

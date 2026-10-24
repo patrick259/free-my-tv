@@ -180,6 +180,15 @@ final class Prefs {
         return out;
     }
 
+    /** Scores was added to an already-saved list of top buttons once (HomeApps.topButtonKeys). */
+    static boolean scoresOffered() {
+        return sp().getBoolean("scoresOffered", false);
+    }
+
+    static void setScoresOffered() {
+        put("scoresOffered", true);
+    }
+
     static void setTopButtons(List<String> keys) {
         StringBuilder sb = new StringBuilder();
         for (String p : keys) sb.append(sb.length() == 0 ? "" : ",").append(p);

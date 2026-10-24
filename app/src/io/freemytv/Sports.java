@@ -362,8 +362,8 @@ final class Sports {
         return String.format(Locale.US, "%04d%02d%02d", c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH));
     }
 
-    private static JSONObject get(String path) throws IOException, JSONException {
-        HttpURLConnection c = (HttpURLConnection) new URL(API + path).openConnection();
+    static JSONObject get(String path) throws IOException, JSONException {
+        HttpURLConnection c = (HttpURLConnection) new URL(path.startsWith("https://") ? path : API + path).openConnection();
         c.setConnectTimeout(8000);
         c.setReadTimeout(15000);
         try {
@@ -402,7 +402,12 @@ final class Sports {
         c.drawRect(0, 0, w, h, paint);
         paint.setShader(null);
         float size = h * 0.34f, cy = h * 0.4f;
-        if (g.photo != null && photo(c, paint, g.photo, w, h)) return out;
+        if (g.photo != null && photo(c, paint, g.photo, w, h)) {
+            // The league's logo on a dark badge, low on the right (above the shelf): clear of the title, the corner
+            // buttons and the busy middle of most race photos.
+            if (g.leagueLogo != null) badge(c, paint, g.leagueLogo, w * 0.85f, h * 0.64f, h * 0.24f);
+            return out;
+        }
         if (g.leagueLogo != null && g.awayLogo == null) {
             drawLogo(c, paint, g.leagueLogo, w * 0.72f, cy, h * 0.5f);
         } else {
@@ -418,6 +423,52 @@ final class Sports {
         android.graphics.Color.colorToHSV(color, hsv);
         hsv[2] = Math.min(hsv[2], 0.62f);
         return android.graphics.Color.HSVToColor(hsv);
+    }
+
+    /** A logo `size` wide on a rounded smoked badge centered at (cx, cy). */
+    private static void badge(Canvas c, Paint paint, String url, float cx, float cy, float size) {
+        try {
+            HttpURLConnection con = (HttpURLConnection) new URL(url).openConnection();
+            con.setConnectTimeout(8000);
+            con.setReadTimeout(15000);
+            Bitmap logo;
+            try (InputStream in = con.getInputStream()) {
+                logo = BitmapFactory.decodeStream(in);
+            } finally {
+                con.disconnect();
+            }
+            if (logo == null) return;
+            // The logo file is square with space around the mark: trim to the mark first.
+            Bitmap mark = trim(logo);
+            float lw = size, lh = size * mark.getHeight() / mark.getWidth(), pad = size * 0.16f;
+            RectF back = new RectF(cx - lw / 2 - pad, cy - lh / 2 - pad, cx + lw / 2 + pad, cy + lh / 2 + pad);
+            paint.setShader(null);
+            paint.setColor(0xA6000000);
+            c.drawRoundRect(back, pad, pad, paint);
+            paint.setColor(0xFFFFFFFF);
+            c.drawBitmap(mark, null, new RectF(cx - lw / 2, cy - lh / 2, cx + lw / 2, cy + lh / 2), paint);
+            if (mark != logo) mark.recycle();
+            logo.recycle();
+        } catch (IOException | RuntimeException e) {
+            AppLog.w("league badge: " + e.getMessage());
+        }
+    }
+
+    /** The bitmap cut to its opaque pixels. */
+    private static Bitmap trim(Bitmap b) {
+        int w = b.getWidth(), h = b.getHeight(), left = w, top = h, right = -1, bottom = -1;
+        int[] row = new int[w];
+        for (int y = 0; y < h; y++) {
+            b.getPixels(row, 0, w, 0, y, w, 1);
+            for (int x = 0; x < w; x++) {
+                if ((row[x] >>> 24) < 16) continue;
+                left = Math.min(left, x);
+                right = Math.max(right, x);
+                top = Math.min(top, y);
+                bottom = Math.max(bottom, y);
+            }
+        }
+        return right < 0 ? b : Bitmap.createBitmap(b, left, top, right - left + 1, bottom - top + 1);
     }
 
     /** The race photo over the whole picture, center-cropped; false if it couldn't be loaded. */
