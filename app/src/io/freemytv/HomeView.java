@@ -352,6 +352,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             updatePalette();
             checkNight(true);
             updatePicks();      // three new ones every hour
+            // The featured hero moves on by itself, except while you're on it (or something covers it).
+            if (picksOn() && zone != Z_HERO && !drawerOpen && !sheetOpen) advance(1);
             handler.postDelayed(this, 15_000);
         }
     };
@@ -397,6 +399,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         setLightButtons(HomeApps.topButtons());
         recs.setLight(true);
+        recs.setFeatured(true);
         checkNight(false);
         sheetLayer.setVisibility(INVISIBLE);
         scene.setMotion(0.6f, 0f);
@@ -2546,8 +2549,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             for (int i = 0; i < others.size(); i++) out.add(a11yId(GRID, i));
             return;
         }
-        for (int i = picksOn() ? 0 : 3; i < 3 + lightButtons.size(); i++) out.add(a11yId(Z_TOP, i));
+        for (int i = tabsOn() ? 0 : 3; i < 3 + lightButtons.size(); i++) out.add(a11yId(Z_TOP, i));
         for (int i = 0; i < Math.min(3, cards.size()); i++) out.add(a11yId(Z_CARDS, i));
+        if (featured() && currentPick() != null) out.add(a11yId(Z_HERO, 0));
         for (int i = shelfFirst; i < Math.min(shelf.size(), shelfFirst + shelfVisible); i++) out.add(a11yId(Z_SHELF, i));
         for (int i = 0; i < drawerItems.size(); i++) out.add(a11yId(Z_DRAWER, i));
         if (drawerOpen && Prefs.weather()) out.add(a11yId(WIDGETS, 0));
@@ -2564,6 +2568,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 if (i >= 3) return label(lightButtons, i - 3);
                 return Ui.trf("{name}, tab {i} of {n}", "name", tabs()[i], "i", i + 1, "n", 3);
             case Z_CARDS: return i < cards.size() ? pickText(cards.get(i)) : "";
+            case Z_HERO: return pickText(currentPick());
             case Z_SHELF:
                 if (reordering && i == shelfIndex) {
                     return Ui.trf("Moving {app}, position {n} of {total}",
@@ -2603,6 +2608,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 a11yRect.set(cardRects[i]);
                 dy = heroLayer.getTranslationY();
                 break;
+            case Z_HERO:
+                if (currentPick() == null) return false;
+                a11yRect.set(heroButton);
+                dy = heroLayer.getTranslationY();
+                break;
             case Z_SHELF:
                 if (i >= tileRects.length) return false;
                 a11yRect.set(tileRects[i]);
@@ -2634,6 +2644,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         switch (zone) {
             case Z_TOP: return a11yId(Z_TOP, topIndex);
             case Z_CARDS: return cardIndex < cards.size() ? a11yId(Z_CARDS, cardIndex) : -1;
+            case Z_HERO: return currentPick() == null ? -1 : a11yId(Z_HERO, 0);
             case Z_SHELF: return shelf.isEmpty() ? -1 : a11yId(Z_SHELF, shelfIndex);
             case Z_DRAWER: return drawerItems.isEmpty() ? -1 : a11yId(Z_DRAWER, drawerIndex);
             case WIDGETS: return a11yId(WIDGETS, widgetIndex);
@@ -2681,7 +2692,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 widgetIndex = i;
                 break;
             case Z_TOP:
-                if (i >= 3 + lightButtons.size() || (i < 3 && !picksOn())) return;
+                if (i >= 3 + lightButtons.size() || (i < 3 && !tabsOn())) return;
                 if (drawerOpen) closeDrawer();
                 topIndex = i;
                 if (i < 3) selectTab(i);
@@ -2690,6 +2701,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 if (i >= cards.size()) return;
                 if (drawerOpen) closeDrawer();
                 cardIndex = i;
+                break;
+            case Z_HERO:
+                if (currentPick() == null) return;
+                if (drawerOpen) closeDrawer();
                 break;
             case Z_SHELF:
                 if (i >= shelf.size()) return;
@@ -2786,6 +2801,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** The three cards of the current tab (Explore, Movies, Shows) and the background taken from the first one. */
     private void updateCards() {
+        if (picksOn()) {
+            updateFeatured();
+            return;
+        }
         List<Recs.Pick> list = recs.now(TAB_KIND[tab]);
         if (!samePicks(list, cards)) {
             cards = list;
@@ -2802,6 +2821,47 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (b != null || (cards.isEmpty() && !own)) showBackdrop(b);
         heroDirty = true;
         spoken.focusMoved();    // new picks under the focused card
+    }
+
+    /**
+     * Featured hero: this hour's picks from all three tabs (up to 9, one at a time), the current one's photo as the
+     * whole background. Only it and the next are loaded (Recs keeps few full-screen images).
+     */
+    private void updateFeatured() {
+        List<Recs.Pick> list = recs.wanted();
+        if (!samePicks(list, picks)) {
+            Recs.Pick was = currentPick();
+            pickIndex = 0;
+            for (int i = 0; was != null && i < list.size(); i++) {
+                if (Recs.key(list.get(i)).equals(Recs.key(was))) pickIndex = i;
+            }
+            if (zone == Z_HERO && list.isEmpty()) {
+                zone = Z_SHELF;
+                retarget(false);
+            }
+        }
+        // Always Recs' own objects: a refetch makes new ones, and the details and links arrive on those.
+        picks = list;
+        showFeatured();
+    }
+
+    /** The current pick's photo (once it is ready; Recs notifies) and the next one loading. */
+    private void showFeatured() {
+        Backdrop b = recs.backdrop(currentPick());
+        if (b != null) showBackdrop(b);
+        if (picks.size() > 1) recs.backdrop(picks.get((pickIndex + 1) % picks.size()));
+        heroDirty = true;
+        spoken.focusMoved();
+    }
+
+    /** ←/→ on the hero, and every 15 s while it isn't focused: the next (or previous) pick, with a fade. */
+    private boolean advance(int dir) {
+        if (picks.size() < 2) return false;
+        pickIndex = (pickIndex + dir + picks.size()) % picks.size();
+        heroFadeAt = SystemClock.uptimeMillis();
+        showFeatured();
+        wake();
+        return true;
     }
 
     /** Your photo's background is ready (or new photos came in): draw it. */
@@ -2851,6 +2911,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void drawLightImage(Canvas c, Backdrop b, float alpha) {
+        if (b.image != null) {      // featured hero: the sharp photo, day and night
+            drawImage(c, b.image, alpha);
+            return;
+        }
         if (night < 0.999f || b.nightImage == null) drawImage(c, b.lightImage, alpha);
         if (night > 0.001f) drawImage(c, b.nightImage, alpha * night);
     }
@@ -2860,6 +2924,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (!picksOn()) {
             drawClock(c);
             if (HomeData.coinCount() > 0) drawQuotes(c);
+            return;
+        }
+        if (featured()) {
+            drawFeatured(c);
             return;
         }
         String hello = Ui.tr("For You");
@@ -2897,6 +2965,107 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private boolean picksOn() {
         return Recs.hasKey(getContext());
+    }
+
+    /** The Explore / Movies / Shows tabs: only in the card design (the featured hero mixes all three). */
+    private boolean tabsOn() {
+        return picksOn() && !featured();
+    }
+
+    /** The featured hero replaces the tabs and the three cards whenever there are picks. */
+    private boolean featured() {
+        return picksOn();
+    }
+
+    // Featured hero: one line of time, date and weather at the top; the pick over its photo, anchored above the shelf.
+    private static final float F_TOP_BASE = 116, F_LABEL_BASE = 392, F_TITLE_TOP = 418, F_TITLE_W = 980;
+    private static final float F_BUTTON_H = 68, F_BUTTON_PAD = 34;
+    private StaticLayout featuredTitle;
+    private String featuredTitleText;
+
+    private void drawFeatured(Canvas c) {
+        float x = MARGIN * k;
+        // Top line: the clock, then date · weather (white: the photo's top scrim is behind it).
+        float base = F_TOP_BASE * k;
+        text(c, clockText, x, base, metaPaint, 0xFFFFFFFF, 1);
+        float tx = x + metaPaint.measureText(clockText) + 22 * k;
+        String rest = dateText;
+        HomeData.Weather wx = data.weather;
+        boolean weather = Prefs.weather() && !Double.isNaN(wx.temp);
+        if (weather) rest += "   ·";
+        text(c, rest, tx, base, metaPaint, 0xD1FFFFFF, 1);
+        tx += metaPaint.measureText(rest) + 18 * k;
+        if (weather) {
+            float size = 32 * k;
+            String symbol = Symbols.weather(wx.code, wx.isDay);
+            float sw = Symbols.width(getContext(), symbol, size);
+            Symbols.draw(getContext(), c, symbol, tx + sw / 2, base - Ui.halfCap(metaPaint), size, 0xD1FFFFFF);
+            text(c, HomeData.degrees(wx.temp) + "  " + HomeData.condition(wx.code, wx.isDay), tx + sw + 12 * k, base, metaPaint, 0xD1FFFFFF, 1);
+        }
+
+        Recs.Pick p = currentPick();
+        if (p == null) return;
+        float alpha = heroFadeAt == 0 ? 1 : fadeEase(heroFadeAt, SystemClock.uptimeMillis());
+        String app = Recs.serviceName(p);
+        String label = app == null || app.isEmpty() ? Recs.periodLabel() : Ui.trf("TRENDING ON {app}", "app", app.toUpperCase(Ui.locale()));
+        text(c, label, x, F_LABEL_BASE * k, labelPaint, 0xC7FFFFFF, alpha);
+        String title = p.title == null ? "" : p.title;
+        if (featuredTitle == null || !title.equals(featuredTitleText)) {
+            featuredTitleText = title;
+            featuredTitle = StaticLayout.Builder.obtain(title, 0, title.length(), titlePaint, Math.max(1, Math.round(F_TITLE_W * k)))
+                    .setMaxLines(2)
+                    .setEllipsize(TextUtils.TruncateAt.END)
+                    .setLineSpacing(0, 0.94f)
+                    .setIncludePad(false)
+                    .build();
+        }
+        titlePaint.setColor(0xFFFFFFFF);
+        titlePaint.setAlpha(Math.round(255 * alpha));
+        c.save();
+        c.translate(x, F_TITLE_TOP * k);
+        featuredTitle.draw(c);
+        c.restore();
+        titlePaint.setAlpha(255);
+        float y = F_TITLE_TOP * k + featuredTitle.getHeight();
+        if (p.meta != null && !p.meta.isEmpty()) {
+            y += 52 * k;
+            text(c, p.meta, x, y, metaPaint, 0xD1FFFFFF, alpha);
+        }
+        // The button: glass at rest; white with dark text when focused (the tvOS focus), growing a little.
+        y += 40 * k;
+        if (p.pkg != null) {
+            String watch = app == null || app.isEmpty() ? Ui.tr("Watch") : Ui.trf("Watch on {app}", "app", app);
+            float f = Ui.clamp(heroFocus.value), s = 1 + 0.06f * f;
+            float bw = buttonPaint.measureText(watch) + 2 * F_BUTTON_PAD * k, bh = F_BUTTON_H * k;
+            heroButton.set(x, y, x + bw, y + bh);
+            cell.set(heroButton.centerX() - bw * s / 2, heroButton.centerY() - bh * s / 2,
+                    heroButton.centerX() + bw * s / 2, heroButton.centerY() + bh * s / 2);
+            float r = cell.height() / 2;
+            if (f > 0.01f) {
+                tmp.set(cell);
+                tmp.offset(0, 8 * k * f);
+                shadow.setColor(Ui.alpha(0xFF000000, 0.35f * f));
+                shadows.draw(c, tmp, r, SHADOW_BLUR * k, shadow);
+            }
+            fill.setShader(null);
+            fill.setColor(blend(0x38FFFFFF, 0xFFFFFFFF, f));
+            c.drawRoundRect(cell, r, r, fill);
+            buttonPaint.setColor(blend(0xFFFFFFFF, INK, f));
+            c.drawText(watch, cell.centerX() - buttonPaint.measureText(watch) / 2, cell.centerY() + Ui.halfCap(buttonPaint), buttonPaint);
+            buttonPaint.setColor(INK);
+            y += bh;
+        }
+        // Dots: which of the picks this is (the current one is a short bar).
+        if (picks.size() > 1) {
+            float dy = y + 44 * k, dot = 10 * k, gap = 12 * k, dx = x;
+            for (int i = 0; i < picks.size(); i++) {
+                float w = i == pickIndex ? dot * 3 : dot;
+                fill.setColor(i == pickIndex ? 0xF2FFFFFF : 0x73FFFFFF);
+                tmp.set(dx, dy, dx + w, dy + dot);
+                c.drawRoundRect(tmp, dot / 2, dot / 2, fill);
+                dx += w + gap;
+            }
+        }
     }
 
     private void drawClock(Canvas c) {
@@ -3025,10 +3194,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             case Z_SHELF:
                 // Up from an empty shelf too: move()'s older zones (the hero, the corner capsule) aren't drawn any more.
                 if (dy >= 0) return false;
-                if (cards.isEmpty()) {
-                    if (!picksOn() && lightButtons.isEmpty()) return true;   // no tabs and no buttons above
+                if (featured() && !picks.isEmpty()) {
+                    zone = Z_HERO;
+                } else if (cards.isEmpty()) {
+                    if (!tabsOn() && lightButtons.isEmpty()) return true;   // no tabs and no buttons above
                     zone = Z_TOP;
-                    topIndex = picksOn() ? tab : 3;
+                    topIndex = tabsOn() ? tab : 3;
                 } else {
                     zone = Z_CARDS;
                     cardIndex = nearest(cardRects, cards.size(), shelf.isEmpty() ? w / 2f : tileRects[shelfIndex].centerX());
@@ -3047,14 +3218,27 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     if (!shelf.isEmpty()) shelfIndex = nearest(tileRects, tileRects.length, cardRects[cardIndex].centerX());
                 }
                 break;
+            case Z_HERO:
+                if (dx != 0) {
+                    if (!advance(dx)) return true;
+                } else if (dy < 0) {
+                    if (lightButtons.isEmpty()) return true;
+                    zone = Z_TOP;
+                    topIndex = 3;
+                } else {
+                    zone = Z_SHELF;
+                }
+                break;
             case Z_TOP:
                 if (dx != 0) {
-                    int next = Math.max(picksOn() ? 0 : 3, Math.min(2 + lightButtons.size(), topIndex + dx));
+                    int next = Math.max(tabsOn() ? 0 : 3, Math.min(2 + lightButtons.size(), topIndex + dx));
                     if (next == topIndex) return true;
                     topIndex = next;
                     if (topIndex < 3) selectTab(topIndex);   // like Apple TV tabs: focusing a tab selects it
                 } else if (dy > 0) {
-                    if (cards.isEmpty()) {
+                    if (featured() && !picks.isEmpty()) {
+                        zone = Z_HERO;
+                    } else if (cards.isEmpty()) {
                         zone = Z_SHELF;
                     } else {
                         zone = Z_CARDS;

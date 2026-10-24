@@ -127,6 +127,7 @@ final class Recs {
     private volatile boolean fetching;
     private volatile String error = "";
     private volatile boolean light;     // light design: builds only the cards (all three tabs' cards fit in memory)
+    private volatile boolean featured;  // light design, featured hero: the whole photo instead of the cards (few kept)
     private volatile long failedAt, keyStamp, linkRetryAt;
     private volatile String listLanguage = "";   // language used for the saved titles, genres and texts
 
@@ -304,6 +305,15 @@ final class Recs {
     void setLight(boolean value) {
         if (value == light) return;
         light = value;
+        synchronized (images) {
+            images.clear();
+        }
+    }
+
+    /** Light design with the featured hero (Backdrop.make's `featured`). */
+    void setFeatured(boolean value) {
+        if (value == featured) return;
+        featured = value;
         synchronized (images) {
             images.clear();
         }
@@ -753,12 +763,13 @@ final class Recs {
             Bitmap b = BitmapFactory.decodeFile(f.getPath(), opts);
             if (b == null) throw new IOException("unreadable image");
             AppLog.w("backdrop \u201c" + p.title + "\u201d: " + bounds.outWidth + "×" + bounds.outHeight + " → " + Backdrop.W + "×" + Backdrop.H);
-            boolean forLight = light;
-            Backdrop backdrop = Backdrop.make(b, forLight);
-            if (forLight != light) return;   // the design changed midway: this one is stale
+            boolean forLight = light, whole = featured;
+            Backdrop backdrop = Backdrop.make(b, forLight, false, whole);
+            if (forLight != light || whole != featured) return;   // the design changed midway: this one is stale
             synchronized (images) {
                 images.put(p.backdrop, backdrop);
-                while (images.size() > (forLight ? 10 : 4)) images.remove(images.keySet().iterator().next());
+                // Full-screen images (8 MB each at 1080p): only a few; the light design's cards are small.
+                while (images.size() > (forLight && !whole ? 10 : 4)) images.remove(images.keySet().iterator().next());
             }
             notifyListeners();
         } catch (IOException | RuntimeException | OutOfMemoryError e) {

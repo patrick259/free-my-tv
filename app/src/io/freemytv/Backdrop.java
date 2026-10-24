@@ -75,12 +75,21 @@ final class Backdrop {
         return make(src, forLight, false);
     }
 
+    static Backdrop make(Bitmap src, boolean forLight, boolean own) {
+        return make(src, forLight, own, false);
+    }
+
     /**
      * `own`: one of your photos (Photos). Its background is less blurred than a pick's; behind the clock, date and
      * weather it is whitened (darkened at night) as much as a pick's, so the text stays readable, then less toward the
      * right, so it still reads as your photo. The glass and the drawer stay as they are.
      */
-    static Backdrop make(Bitmap src, boolean forLight, boolean own) {
+    /**
+     * `featured` (light design, featured hero): the glass and frosted versions as for the light design, but no cards;
+     * instead the whole photo, sharp, with the scrims (the hero text on the left, the shelf at the bottom, the clock at
+     * the top). One full-screen image each, so Recs keeps few.
+     */
+    static Backdrop make(Bitmap src, boolean forLight, boolean own, boolean featured) {
         // Cropped to 16:9 at the source's resolution first, then filtered down (no step over 2×).
         Bitmap crop = center(src, (float) W / H);
         if (crop != src) src.recycle();
@@ -92,6 +101,16 @@ final class Backdrop {
             out = copy;
         }
         Canvas c = new Canvas(out);
+        if (forLight && featured && !own) {
+            int[] frost = reduce(out, FW, FH, 3, 3);
+            int[] light = whiten(frost.clone(), 0.82f);
+            int[] glass = reduce(out, GW, GH, 2, 2);
+            int[] lightGlass = whiten(glass.clone(), 0.74f);
+            int[] night = darken(frost.clone(), 0.76f);
+            int[] nightGlass = darken(glass, 0.56f);
+            scrims(c, out);
+            return new Backdrop(gpu(out), frost, null, null, null, light, lightGlass, night, nightGlass);
+        }
         if (forLight) {
             // Light design: everything comes from the photo without scrims.
             Bitmap wide = card(out, WIDE_W, WIDE_H), tall = card(out, TALL_W, TALL_H);
@@ -111,6 +130,14 @@ final class Backdrop {
             return new Backdrop(null, frost, null, wide, tall, light, lightGlass, night, nightGlass);
         }
 
+        scrims(c, out);
+        int[] frost = reduce(out, FW, FH, 3, 3);
+        int[] glass = reduce(out, GW, GH, 2, 2);
+        return new Backdrop(gpu(out), frost, glass, null, null, null, null, null, null);
+    }
+
+    /** The dark scrims for text over the photo: left (the hero), bottom (the shelf), a spot for the prices, top. */
+    private static void scrims(Canvas c, Bitmap out) {
         float boost = Math.max(0, Math.min(0.3f, (luminance(out, 0, 0.22f, 0.5f, 0.62f) - 0.22f) * 1.1f));
         Paint scrim = new Paint(Paint.DITHER_FLAG);
         scrim.setShader(new LinearGradient(0, 0, W * 0.68f, 0,
@@ -132,10 +159,6 @@ final class Backdrop {
         scrim.setShader(new LinearGradient(0, 0, 0, H * 0.24f, new int[] {black(0.34f), black(0.1f), 0},
                 new float[] {0, 0.5f, 1}, Shader.TileMode.CLAMP));
         c.drawRect(0, 0, W, H * 0.24f, scrim);
-
-        int[] frost = reduce(out, FW, FH, 3, 3);
-        int[] glass = reduce(out, GW, GH, 2, 2);
-        return new Backdrop(gpu(out), frost, glass, null, null, null, null, null, null);
     }
 
     /** How many times smaller the screensaver photo's frosted version is (the glass math uses the same number). */
