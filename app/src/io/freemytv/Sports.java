@@ -47,6 +47,31 @@ final class Sports {
     private static final String F1_SPONSORS = "^(MSC Cruises|Aramco|Heineken|Qatar Airways|Lenovo|AWS|Crypto\\.com|Louis Vuitton"
             + "|Gulf Air|STC|Etihad Airways|Pirelli|Rolex|TAG Heuer|Santander|Formula 1|FORMULA 1)\\s+";
 
+    /**
+     * F1's own circuit outlines (white on transparent, media.formula1.com), by the words in ESPN's race name. Checked
+     * in this order: "Bahrain Grand Prix in Malaysia" and "Qatar Airways Australian" before plain Bahrain and Qatar.
+     */
+    private static final String[][] TRACKS = {
+        {"in Malaysia", "sepang"}, {"Australian", "melbourne"}, {"Chinese", "shanghai"}, {"Japanese", "suzuka"},
+        {"Bahrain", "sakhir"}, {"Saudi", "jeddah"}, {"Miami", "miami"}, {"Canadian", "montreal"}, {"Monaco", "montecarlo"},
+        {"Barcelona", "catalunya"}, {"Austrian", "spielberg"}, {"British", "silverstone"}, {"Belgian", "spafrancorchamps"},
+        {"Hungarian", "hungaroring"}, {"Dutch", "zandvoort"}, {"Italian", "monza"}, {"Emilia", "imola"},
+        {"Spanish", "madring"}, {"Azerbaijan", "baku"}, {"Singapore", "singapore"}, {"United States", "austin"},
+        {"Mexico", "mexicocity"}, {"São Paulo", "interlagos"}, {"Sao Paulo", "interlagos"}, {"Las Vegas", "lasvegas"},
+        {"Qatar Grand Prix", "lusail"}, {"Abu Dhabi", "yasmarinacircuit"},
+    };
+
+    /** The circuit's outline for this race ("MSC Cruises United States Grand Prix"), or null if we don't know it. */
+    static String trackUrl(String race) {
+        for (String[] t : TRACKS) {
+            if (!race.contains(t[0])) continue;
+            int year = Calendar.getInstance().get(Calendar.YEAR);
+            return "https://media.formula1.com/image/upload/f_png,c_fit,h_704/q_auto/common/f1/" + year + "/track/"
+                    + year + "track" + t[1] + "whiteoutline.png";
+        }
+        return null;
+    }
+
     /** Network (ESPN's name, lowercase) → app on the TV (key for Recs' service names, package). First installed wins. */
     private static final String[][] NETWORKS = {
         {"prime video", "prime", "com.amazon.firebat"},
@@ -67,7 +92,8 @@ final class Sports {
     /** One game (or F1 session) as the hero needs it. */
     static final class Game {
         String id, league, away, home, awayLogo, homeLogo, leagueLogo, place;
-        String photo;           // F1: a photo from this race weekend (ESPN's news), instead of the league's logo
+        String track;           // F1: the circuit's outline
+        String photo;           // F1 without a known circuit: a photo from this race weekend (ESPN's news)
         int awayColor, homeColor;
         long start;
         String state, detail;   // "pre", "in", "post"; ESPN's "Top 5th", "Q3 4:12"
@@ -204,8 +230,11 @@ final class Sports {
                 state(g, c, c.optString("date"));
                 Recs.Pick p = pick(g, app);
                 p.title = e.optString("name").replaceFirst(F1_SPONSORS, "");
-                if (news == null) news = get("racing/f1/news?limit=12");
-                g.photo = racePhoto(news, p.title);
+                g.track = trackUrl(e.optString("name"));
+                if (g.track == null) {
+                    if (news == null) news = get("racing/f1/news?limit=12");
+                    g.photo = racePhoto(news, p.title);
+                }
                 p.label = ("FORMULA 1 · " + session).toUpperCase(Ui.locale());
                 p.meta = when(g) + (g.place.isEmpty() ? "" : " · " + g.place) + " · " + app[3];
                 add(out, p);
@@ -402,6 +431,7 @@ final class Sports {
         c.drawRect(0, 0, w, h, paint);
         paint.setShader(null);
         float size = h * 0.34f, cy = h * 0.4f;
+        if (g.track != null && track(c, paint, g, w, h)) return out;
         if (g.photo != null && photo(c, paint, g.photo, w, h)) {
             // The league's logo on a dark badge, low on the right (above the shelf): clear of the title, the corner
             // buttons and the busy middle of most race photos.
@@ -415,6 +445,54 @@ final class Sports {
             drawLogo(c, paint, g.homeLogo, w * 0.84f, cy, size);
         }
         return out;
+    }
+
+    /**
+     * F1: the circuit's outline, large on the right, on F1 red fading to black under the hero's text, with faint
+     * speed lines, and the F1 logo on its badge low on the right. False if the outline couldn't be loaded.
+     */
+    private static boolean track(Canvas c, Paint paint, Game g, int w, int h) {
+        Bitmap outline = load(g.track);
+        if (outline == null) return false;
+        paint.setShader(new LinearGradient(w * 0.3f, h, w, 0, new int[] {0xFF0B0B0F, 0xFF4A0300, 0xFFC00500},
+                new float[] {0, 0.5f, 1}, Shader.TileMode.CLAMP));
+        c.drawRect(0, 0, w, h, paint);
+        paint.setShader(null);
+        paint.setColor(0x0FFFFFFF);
+        paint.setStrokeWidth(h * 0.006f);
+        for (float x = w * 0.35f; x < w * 1.3f; x += h * 0.06f) c.drawLine(x, 0, x - h * 0.5f, h, paint);
+        Bitmap mark = trim(outline);
+        // Clear of the clock and buttons above and the F1 badge below; never wider than the right half.
+        float th = h * 0.5f, tw = th * mark.getWidth() / mark.getHeight();
+        if (tw > w * 0.42f) {
+            tw = w * 0.42f;
+            th = tw * mark.getHeight() / mark.getWidth();
+        }
+        float cx = w * 0.7f, cy = h * 0.38f;
+        paint.setColor(0xFFFFFFFF);
+        paint.setAlpha(235);
+        c.drawBitmap(mark, null, new RectF(cx - tw / 2, cy - th / 2, cx + tw / 2, cy + th / 2), paint);
+        paint.setAlpha(255);
+        if (mark != outline) mark.recycle();
+        outline.recycle();
+        if (g.leagueLogo != null) badge(c, paint, g.leagueLogo, w * 0.88f, h * 0.68f, h * 0.17f);
+        return true;
+    }
+
+    private static Bitmap load(String url) {
+        try {
+            HttpURLConnection con = (HttpURLConnection) new URL(url).openConnection();
+            con.setConnectTimeout(8000);
+            con.setReadTimeout(15000);
+            try (InputStream in = con.getInputStream()) {
+                return BitmapFactory.decodeStream(in);
+            } finally {
+                con.disconnect();
+            }
+        } catch (IOException | RuntimeException e) {
+            AppLog.w("image " + url + ": " + e.getMessage());
+            return null;
+        }
     }
 
     /** A team color darkened a little (a bright yellow or white would wash out the text and the glass). */

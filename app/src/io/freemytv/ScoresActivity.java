@@ -39,7 +39,8 @@ import java.util.concurrent.Executors;
 
 /**
  * Scores: the leagues in season (ESPN's public scoreboards, no key), Formula 1 first while its season runs. A tab per
- * league (← →); for F1 the race weekend's sessions and the driver and constructor standings, for the others today's and
+ * league (← →); for F1 the race weekend (circuit map, countdown, sessions and winners), the drivers with their team
+ * colors and flags, and the constructors as bars; for the others today's and
  * tomorrow's games (logos, score, status, network). Live scores refresh every 30 s. Back comes home.
  */
 public class ScoresActivity extends Activity {
@@ -343,56 +344,320 @@ public class ScoresActivity extends Activity {
 
     // MARK: - Formula 1: the weekend and the standings
 
+    /** 2026 seats (ESPN's driver codes): a driver's team color in the standings, which list drivers without teams. */
+    private static final String[][] SEATS = {
+        {"Mercedes", "RUS", "ANT"}, {"Ferrari", "LEC", "HAM"}, {"McLaren", "NOR", "PIA"}, {"Red Bull", "VER", "HAD"},
+        {"Racing Bulls", "LAW", "LIN"}, {"Aston Martin", "ALO", "STR"}, {"Williams", "ALB", "SAI"},
+        {"Alpine", "GAS", "COL"}, {"Haas", "OCO", "BEA"}, {"Audi", "HUL", "BOR"}, {"Cadillac", "PER", "BOT"},
+    };
+    /** Team colors where ESPN's don't read on a dark screen (Williams white, Haas and Red Bull too dark). */
+    private static final String[][] TEAM_COLORS = {
+        {"Williams", "64C4FF"}, {"Haas", "B6BABD"}, {"Red Bull", "3671C6"}, {"Aston Martin", "229971"},
+    };
+    private static final int F1_RED = 0xFFE10600;
+
     private View f1(JSONObject board, JSONObject standings) {
+        // Team colors by name (ESPN's constructors, with our overrides).
+        java.util.Map<String, Integer> colors = new java.util.HashMap<>();
+        JSONArray groups = standings.optJSONArray("children");
+        JSONArray drivers = entries(groups, 0), teams = entries(groups, 1);
+        for (int i = 0; teams != null && i < teams.length(); i++) {
+            JSONObject t = teams.optJSONObject(i).optJSONObject("team");
+            if (t == null) continue;
+            try {
+                colors.put(t.optString("displayName"), 0xFF000000 | Integer.parseInt(t.optString("color", "888888"), 16));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        for (String[] c : TEAM_COLORS) colors.put(c[0], 0xFF000000 | Integer.parseInt(c[1], 16));
+
         LinearLayout cols = new LinearLayout(this);
-        // Left: this race weekend's sessions (times; the winner of finished ones when ESPN has the order).
-        LinearLayout weekend = column();
         JSONArray events = board.optJSONArray("events");
         JSONObject race = events == null || events.length() == 0 ? null : events.optJSONObject(0);
         if (race != null) {
-            weekend.addView(text(race.optString("name").replaceFirst("^(MSC Cruises|Aramco|Heineken|Qatar Airways|Lenovo|AWS|Crypto\\.com|Louis Vuitton|Gulf Air|STC|Etihad Airways|Pirelli|Rolex|TAG Heuer|Santander|Formula 1)\\s+", ""), 34, INK, Ui.displaySemibold));
-            JSONObject circuit = race.optJSONObject("circuit");
-            if (circuit != null) weekend.addView(text(circuit.optString("fullName"), 24, DIM, Ui.medium));
-            JSONArray sessions = race.optJSONArray("competitions");
-            for (int i = 0; sessions != null && i < sessions.length(); i++) {
-                JSONObject s = sessions.optJSONObject(i);
-                String abbr = s.optJSONObject("type") == null ? "" : s.optJSONObject("type").optString("abbreviation");
-                String name = abbr.equals("Qual") ? Ui.tr("Qualifying") : abbr.equals("Race") ? Ui.tr("Race") : abbr;
-                JSONObject st = s.optJSONObject("status") == null ? null : s.optJSONObject("status").optJSONObject("type");
-                String state = st == null ? "pre" : st.optString("state");
-                String detail = state.equals("pre") ? start(s.optString("date")) : state.equals("in") ? Ui.tr("Live") : leader(s);
-                weekend.addView(row(name, detail, state.equals("in") ? 0xFFFF453A : DIM));
-            }
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(px(600), ViewGroup.LayoutParams.MATCH_PARENT);
+            lp.setMarginEnd(px(48));
+            cols.addView(weekend(board, race), lp);
         }
-        cols.addView(weekend, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
-        // Middle and right: drivers (top 12) and constructors.
-        JSONArray groups = standings.optJSONArray("children");
-        for (int g = 0; groups != null && g < groups.length() && g < 2; g++) {
-            JSONObject group = groups.optJSONObject(g);
-            LinearLayout col = column();
-            col.addView(text(g == 0 ? Ui.tr("Drivers") : Ui.tr("Constructors"), 34, INK, Ui.displaySemibold));
-            JSONArray entries = group.optJSONObject("standings") == null ? null : group.optJSONObject("standings").optJSONArray("entries");
-            for (int i = 0; entries != null && i < entries.length() && i < (g == 0 ? 12 : 10); i++) {
-                JSONObject entry = entries.optJSONObject(i);
-                String who = entry.optJSONObject("athlete") != null ? entry.optJSONObject("athlete").optString("displayName")
-                        : entry.optJSONObject("team") != null ? entry.optJSONObject("team").optString("displayName") : "";
-                String rank = stat(entry, "rank"), pts = stat(entry, "championshipPts");
-                if (pts.isEmpty()) pts = stat(entry, "points");     // constructors
-                col.addView(row(rank + "   " + who, pts.isEmpty() ? "" : pts + " " + Ui.tr("pts"), DIM));
-            }
-            cols.addView(col, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
-        }
+        LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.1f);
+        dl.setMarginEnd(px(48));
+        cols.addView(drivers(drivers, colors), dl);
+        cols.addView(constructors(teams, colors), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
         return cols;
     }
 
-    private static String leader(JSONObject session) {
+    private static JSONArray entries(JSONArray groups, int g) {
+        JSONObject group = groups == null ? null : groups.optJSONObject(g);
+        return group == null || group.optJSONObject("standings") == null ? null
+                : group.optJSONObject("standings").optJSONArray("entries");
+    }
+
+    /** The race weekend: round, circuit map, name, a countdown to the next session, and every session in order. */
+    private View weekend(JSONObject board, JSONObject race) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(px(36), px(32), px(36), px(32));
+        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[] {0xFF9E0500, 0xFF3A0300, CARD});
+        bg.setCornerRadius(px(28));
+        card.setBackground(bg);
+        String name = race.optString("name");
+        JSONObject circuit = race.optJSONObject("circuit");
+        String city = circuit == null || circuit.optJSONObject("address") == null ? "" : circuit.optJSONObject("address").optString("city");
+        int round = round(board, name);
+        String over = (round > 0 ? Ui.trf("Round {n}", "n", String.valueOf(round)) : "Formula 1") + (city.isEmpty() ? "" : "  ·  " + city);
+        card.addView(text(over.toUpperCase(Ui.locale()), 20, 0xCCFFFFFF, Ui.semibold));
+
+        String track = Sports.trackUrl(name);
+        if (track != null) {
+            ImageView map = new ImageView(this);
+            map.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            map.setAlpha(0.95f);
+            LinearLayout.LayoutParams ml = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(200));
+            ml.setMargins(0, px(24), 0, px(20));
+            card.addView(map, ml);
+            image(map, track, 2);
+        }
+        TextView title = text(name.replaceFirst("^(MSC Cruises|Aramco|Heineken|Qatar Airways|Lenovo|AWS|Crypto\\.com|Louis Vuitton|Gulf Air|STC|Etihad Airways|Pirelli|Rolex|TAG Heuer|Tag Heuer|Santander|Singapore Airlines|Moët & Chandon|Formula 1)\\s+", ""), 40, INK, Ui.displaySemibold);
+        title.setPadding(0, track == null ? px(20) : 0, 0, px(6));
+        card.addView(title);
+        if (circuit != null) card.addView(text(circuit.optString("fullName"), 22, 0xB3FFFFFF, Ui.medium));
+
+        JSONArray sessions = race.optJSONArray("competitions");
+        JSONObject next = null;
+        for (int i = 0; sessions != null && i < sessions.length(); i++) {
+            JSONObject s = sessions.optJSONObject(i);
+            String st = sessionState(s);
+            if (st.equals("in") || st.equals("pre")) { next = s; break; }
+        }
+        if (next != null) {
+            boolean live = sessionState(next).equals("in");
+            LinearLayout box = new LinearLayout(this);
+            box.setOrientation(LinearLayout.VERTICAL);
+            box.setPadding(px(24), px(18), px(24), px(18));
+            box.setBackground(round(0x33000000));
+            box.addView(text((sessionName(next) + (live ? "" : "  ·  " + start(next.optString("date")))).toUpperCase(Ui.locale()), 20, 0xCCFFFFFF, Ui.semibold));
+            TextView big = text(live ? Ui.tr("Live now") : countdown(time(next.optString("date"))), 46, live ? 0xFFFF453A : INK, Ui.displaySemibold);
+            big.setPadding(0, px(8), 0, 0);
+            box.addView(big);
+            LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            bl.setMargins(0, px(24), 0, px(16));
+            card.addView(box, bl);
+        }
+        for (int i = 0; sessions != null && i < sessions.length(); i++) card.addView(session(sessions.optJSONObject(i), sessions.optJSONObject(i) == next));
+        return card;
+    }
+
+    /** One session: a dot (done, live, next, later), its name, and its winner with flag or its start. */
+    private View session(JSONObject s, boolean isNext) {
+        String state = sessionState(s);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(px(4), px(9), px(4), px(9));
+        row.setFocusable(true);
+        row.setOnFocusChangeListener((v, has) -> v.setBackground(has ? round(0x33FFFFFF) : null));
+        View dot = new View(this);
+        GradientDrawable d = new GradientDrawable();
+        d.setShape(GradientDrawable.OVAL);
+        if (state.equals("post")) d.setColor(INK);
+        else if (state.equals("in")) d.setColor(0xFFFF453A);
+        else d.setStroke(px(3), isNext ? INK : 0x80FFFFFF);
+        dot.setBackground(d);
+        LinearLayout.LayoutParams dp = new LinearLayout.LayoutParams(px(16), px(16));
+        dp.setMarginEnd(px(18));
+        row.addView(dot, dp);
+        row.addView(text(sessionName(s), 26, state.equals("pre") && !isNext ? 0xB3FFFFFF : INK, Ui.semibold),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        JSONObject winner = state.equals("post") ? winner(s) : null;
+        if (winner != null) {
+            JSONObject a = winner.optJSONObject("athlete");
+            JSONObject flag = a == null ? null : a.optJSONObject("flag");
+            if (flag != null) row.addView(flag(flag.optString("href")));
+            String who = a == null ? "" : a.optString("shortName", a.optString("displayName"));
+            row.addView(text(who, 24, INK, Ui.medium));
+        } else {
+            row.addView(text(state.equals("in") ? Ui.tr("Live") : state.equals("post") ? Ui.tr("Final") : start(s.optString("date")),
+                    24, state.equals("in") ? 0xFFFF453A : 0xB3FFFFFF, Ui.medium));
+        }
+        return row;
+    }
+
+    private View drivers(JSONArray entries, java.util.Map<String, Integer> colors) {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.addView(heading(Ui.tr("Drivers")));
+        double leader = 0;
+        for (int i = 0; entries != null && i < entries.length() && i < 12; i++) {
+            JSONObject entry = entries.optJSONObject(i);
+            JSONObject a = entry.optJSONObject("athlete");
+            if (a == null) continue;
+            double pts = number(entry, "championshipPts");
+            if (i == 0) leader = pts;
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(px(16), px(10), px(20), px(10));
+            row.setFocusable(true);
+            final int bg = i == 0 ? 0xFF26262C : 0;
+            row.setBackground(bg == 0 ? null : round(bg));
+            row.setOnFocusChangeListener((v, has) -> v.setBackground(has ? round(0xFF34343C) : bg == 0 ? null : round(bg)));
+            TextView rank = text(stat(entry, "rank"), 24, DIM, Ui.semibold);
+            rank.setGravity(Gravity.END);
+            row.addView(rank, new LinearLayout.LayoutParams(px(40), ViewGroup.LayoutParams.WRAP_CONTENT));
+            View stripe = new View(this);
+            GradientDrawable sd = new GradientDrawable();
+            sd.setColor(teamColor(a.optString("abbreviation"), colors));
+            sd.setCornerRadius(px(3));
+            stripe.setBackground(sd);
+            LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(px(6), px(34));
+            sl.setMargins(px(18), 0, px(14), 0);
+            row.addView(stripe, sl);
+            JSONObject flag = a.optJSONObject("flag");
+            if (flag != null) row.addView(flag(flag.optString("href")));
+            TextView n = text(a.optString("displayName"), 27, INK, i == 0 ? Ui.semibold : Ui.medium);
+            n.setSingleLine();
+            n.setEllipsize(TextUtils.TruncateAt.END);
+            row.addView(n, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            if (i > 0 && leader > pts) {
+                TextView gap = text("−" + Math.round(leader - pts), 20, DIM, Ui.medium);
+                gap.setPadding(px(12), 0, px(16), 0);
+                row.addView(gap);
+            }
+            row.addView(text(String.valueOf(Math.round(pts)), 27, INK, Ui.semibold));
+            col.addView(row);
+        }
+        return col;
+    }
+
+    /** Constructors as bars: each team's points against the leader's, in its color. */
+    private View constructors(JSONArray entries, java.util.Map<String, Integer> colors) {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.addView(heading(Ui.tr("Constructors")));
+        double max = 0;
+        for (int i = 0; entries != null && i < entries.length(); i++) max = Math.max(max, number(entries.optJSONObject(i), "points"));
+        for (int i = 0; entries != null && i < entries.length() && i < 11; i++) {
+            JSONObject entry = entries.optJSONObject(i);
+            JSONObject t = entry.optJSONObject("team");
+            if (t == null) continue;
+            String team = t.optString("displayName");
+            double pts = number(entry, "points");
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.VERTICAL);
+            row.setPadding(px(16), px(8), px(16), px(8));
+            row.setFocusable(true);
+            row.setOnFocusChangeListener((v, has) -> v.setBackground(has ? round(0xFF34343C) : null));
+            LinearLayout line = new LinearLayout(this);
+            TextView n = text(team, 24, INK, Ui.medium);
+            line.addView(n, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            line.addView(text(String.valueOf(Math.round(pts)), 24, INK, Ui.semibold));
+            row.addView(line);
+            Integer color = colors.get(team);
+            Bar bar = new Bar(this, max > 0 ? (float) (pts / max) : 0, color == null ? DIM : color);
+            LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(10));
+            bp.setMargins(0, px(8), 0, 0);
+            row.addView(bar, bp);
+            col.addView(row);
+        }
+        return col;
+    }
+
+    /** A rounded bar `fraction` of the width (at least a sliver), on a faint track. */
+    private static final class Bar extends View {
+        private final float fraction;
+        private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final int color;
+
+        Bar(android.content.Context c, float fraction, int color) {
+            super(c);
+            this.fraction = fraction;
+            this.color = color;
+        }
+
+        @Override protected void onDraw(android.graphics.Canvas c) {
+            float h = getHeight(), r = h / 2;
+            paint.setColor(0x1FFFFFFF);
+            c.drawRoundRect(0, 0, getWidth(), h, r, r, paint);
+            paint.setColor(color);
+            c.drawRoundRect(0, 0, Math.max(h, getWidth() * fraction), h, r, r, paint);
+        }
+    }
+
+    private TextView heading(String s) {
+        TextView t = text(s, 34, INK, Ui.displaySemibold);
+        t.setPadding(px(16), 0, 0, px(16));
+        return t;
+    }
+
+    private ImageView flag(String url) {
+        ImageView f = new ImageView(this);
+        f.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        f.setClipToOutline(true);
+        f.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override public void getOutline(View v, android.graphics.Outline o) { o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), px(4)); }
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(px(38), px(26));
+        lp.setMarginEnd(px(14));
+        f.setLayoutParams(lp);
+        image(f, url, 8);
+        return f;
+    }
+
+    private static int teamColor(String driver, java.util.Map<String, Integer> colors) {
+        for (String[] seat : SEATS) {
+            if (seat[1].equals(driver) || seat[2].equals(driver)) {
+                Integer c = colors.get(seat[0]);
+                return c == null ? DIM : c;
+            }
+        }
+        return 0xFF48484A;
+    }
+
+    /** This race's round in the season (ESPN's calendar), or 0. */
+    private static int round(JSONObject board, String name) {
+        JSONArray leagues = board.optJSONArray("leagues");
+        JSONArray cal = leagues == null || leagues.length() == 0 ? null : leagues.optJSONObject(0).optJSONArray("calendar");
+        for (int i = 0; cal != null && i < cal.length(); i++) if (name.equals(cal.optJSONObject(i).optString("label"))) return i + 1;
+        return 0;
+    }
+
+    private static String sessionState(JSONObject s) {
+        JSONObject st = s.optJSONObject("status") == null ? null : s.optJSONObject("status").optJSONObject("type");
+        return st == null ? "pre" : st.optString("state", "pre");
+    }
+
+    private static String sessionName(JSONObject s) {
+        String abbr = s.optJSONObject("type") == null ? "" : s.optJSONObject("type").optString("abbreviation");
+        switch (abbr) {
+            case "FP1": return Ui.tr("Practice 1");
+            case "FP2": return Ui.tr("Practice 2");
+            case "FP3": return Ui.tr("Practice 3");
+            case "Qual": return Ui.tr("Qualifying");
+            case "Race": return Ui.tr("Race");
+            default: return abbr.toLowerCase(Locale.ROOT).startsWith("sprint") || abbr.equals("SR") ? Ui.tr("Sprint")
+                    : abbr.equals("SQ") || abbr.equals("SS") ? Ui.tr("Sprint Qualifying") : abbr;
+        }
+    }
+
+    /** The session's P1 (ESPN's order 1), or null. */
+    private static JSONObject winner(JSONObject session) {
         JSONArray c = session.optJSONArray("competitors");
-        if (c == null || c.length() == 0) return Ui.tr("Final");
-        JSONObject first = null;
-        for (int i = 0; i < c.length(); i++) if (c.optJSONObject(i).optInt("order", 99) == 1) first = c.optJSONObject(i);
-        if (first == null) first = c.optJSONObject(0);
-        JSONObject athlete = first.optJSONObject("athlete");
-        return athlete == null ? Ui.tr("Final") : "P1 " + athlete.optString("shortName", athlete.optString("displayName"));
+        for (int i = 0; c != null && i < c.length(); i++) if (c.optJSONObject(i).optInt("order", 99) == 1) return c.optJSONObject(i);
+        return null;
+    }
+
+    /** "in 5 h 12 min", "in 2 days". */
+    private static String countdown(long at) {
+        long m = Math.max(0, (at - System.currentTimeMillis()) / 60_000);
+        if (m >= 48 * 60) return Ui.trf("in {n} days", "n", String.valueOf(Math.round(m / 1440.0)));
+        if (m >= 60) return Ui.trf("in {h} h {m} min", "h", String.valueOf(m / 60), "m", String.valueOf(m % 60));
+        return Ui.trf("in {m} min", "m", String.valueOf(m));
+    }
+
+    private static double number(JSONObject entry, String name) {
+        JSONArray stats = entry == null ? null : entry.optJSONArray("stats");
+        for (int i = 0; stats != null && i < stats.length(); i++) {
+            if (name.equals(stats.optJSONObject(i).optString("name"))) return stats.optJSONObject(i).optDouble("value", 0);
+        }
+        return 0;
     }
 
     private static String stat(JSONObject entry, String name) {
@@ -403,30 +668,13 @@ public class ScoresActivity extends Activity {
         return "";
     }
 
-    /** A focusable column (so ↓ scrolls through it with the remote). */
-    private LinearLayout column() {
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(0, 0, px(48), 0);
-        return col;
-    }
-
-    private View row(String left, String right, int rightColor) {
-        LinearLayout row = new LinearLayout(this);
-        row.setPadding(px(4), px(12), px(4), px(12));
-        row.setFocusable(true);
-        row.setOnFocusChangeListener((v, has) -> v.setBackground(has ? round(0xFF2C2C33) : null));
-        TextView l = text(left, 26, INK, Ui.medium);
-        l.setSingleLine();
-        l.setEllipsize(TextUtils.TruncateAt.END);
-        row.addView(l, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        row.addView(text(right, 24, rightColor, Ui.medium));
-        return row;
-    }
-
     // MARK: - Helpers
 
     private void logo(ImageView view, String url) {
+        image(view, url, 4);     // ESPN's 500 px logos, shown at about 48
+    }
+
+    private void image(ImageView view, String url, int sample) {
         if (url == null) return;
         Bitmap cached = logos.get(url);
         if (cached != null) {
@@ -442,7 +690,7 @@ public class ScoresActivity extends Activity {
                 Bitmap b;
                 try (InputStream in = c.getInputStream()) {
                     BitmapFactory.Options o = new BitmapFactory.Options();
-                    o.inSampleSize = 4;     // ESPN's 500 px logos, shown at about 48
+                    o.inSampleSize = sample;
                     b = BitmapFactory.decodeStream(in, null, o);
                 } finally {
                     c.disconnect();
