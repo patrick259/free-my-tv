@@ -352,8 +352,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             updatePalette();
             checkNight(true);
             updatePicks();      // three new ones every hour
-            // The featured hero moves on by itself, except while you're on it (or something covers it).
-            if (picksOn() && zone != Z_HERO && !drawerOpen && !sheetOpen) advance(1);
+            // The featured hero moves on by itself (on the Watch button too), except while something covers it or for
+            // a while after you moved it yourself.
+            if (picksOn() && !drawerOpen && !sheetOpen && SystemClock.uptimeMillis() - browsedAt >= 15_000) advance(1);
             handler.postDelayed(this, 15_000);
         }
     };
@@ -1573,14 +1574,28 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         hourTemp.setColor(drawerInk(0.95f));
         pricePaint.setColor(drawerInk(0.95f));
         float titleBase = ROW_TITLE * k;
-        if (drawerInputs > 0) c.drawText(Ui.tr("Inputs"), drawerRects[0].left + 4 * k, titleBase, rowTitle);
-        if (drawerInputs < drawerItems.size()) c.drawText(Ui.tr("Shortcuts"), drawerRects[drawerInputs].left + 4 * k, titleBase, rowTitle);
+        if (drawerInputs > 0) drawRowTitle(c, Ui.tr("Inputs"), drawerRects[0].left, titleBase);
+        if (drawerInputs < drawerItems.size()) drawRowTitle(c, Ui.tr("Shortcuts"), drawerRects[drawerInputs].left, titleBase);
         int top = -1;
         for (int i = 0; i < drawerItems.size(); i++) if (drawerFocus[i].value > 0.02f && (top < 0 || drawerFocus[i].value > drawerFocus[top].value)) top = i;
         for (int i = 0; i < drawerItems.size(); i++) if (i != top) drawDrawerTile(c, i);
         if (top >= 0) drawDrawerTile(c, top);
         if (Prefs.weather()) drawWeatherCard(c, weatherCard);
         if (Prefs.quotes() && HomeData.active().length > 0) drawQuotesCard(c, quotesCard);
+    }
+
+    /**
+     * A drawer row's title on a small frosted pill (light by day, smoked at night): the featured hero's photo shows
+     * behind the drawer, and plain grey text got lost on it.
+     */
+    private void drawRowTitle(Canvas c, String title, float left, float base) {
+        rowTitle.setColor(tone(L_INK, WHITE));
+        float padX = 16 * k, w = rowTitle.measureText(title) + 2 * padX, half = 22 * k, cy = base - Ui.halfCap(rowTitle);
+        tmp.set(left, cy - half, left + w, cy + half);
+        fill.setShader(null);
+        fill.setColor(tone(0xB8FFFFFF, 0x8C000000));
+        c.drawRoundRect(tmp, half, half, fill);
+        c.drawText(title, left + padX, base, rowTitle);
     }
 
     /** Square drawer button: symbol and name; an input with no device is dimmed. Focused: white, with dark text. */
@@ -2988,6 +3003,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final float F_TOP_BASE = 116, F_BUTTON_TOP = 710, F_TITLE_W = 980;
     private static final float F_BUTTON_H = 68, F_BUTTON_PAD = 34, F_LOGO_W = 720, F_LOGO_H = 200;
     private StaticLayout featuredTitle;
+    /** When ← or → last moved the hero (the next automatic move waits a full interval after it). */
+    private long browsedAt;
     private String featuredTitleText;
 
     private void drawFeatured(Canvas c) {
@@ -3255,6 +3272,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             case Z_HERO:
                 if (dx != 0) {
                     if (!advance(dx)) return true;
+                    browsedAt = SystemClock.uptimeMillis();
                 } else if (dy < 0) {
                     if (lightButtons.isEmpty()) return true;
                     zone = Z_TOP;

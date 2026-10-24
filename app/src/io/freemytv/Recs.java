@@ -49,6 +49,7 @@ final class Recs {
         String link;            // opens the title in its app (looked up with Watchmode), or null: the app's home
         String logo;            // TMDB's title logo (file path), or null: the title is written out
         boolean scary;          // horror (by genre or TMDB keyword): left out with hide_horror=true
+        boolean cartoon;        // an animated series (anime, cartoons): left out with hide_animated_shows=true
         boolean detailed;
         java.io.File photo;     // one of your own photos (Photos): no title, no caption
     }
@@ -66,7 +67,7 @@ final class Recs {
     private static final String LOGOS = "https://image.tmdb.org/t/p/w500";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 5;
+    private static final int CACHE_VERSION = 6;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     /** Service name on TMDB (part of the name, lowercase) → TV app (HomeApps key, package). */
     private static final String[][] SERVICES = {
@@ -203,7 +204,7 @@ final class Recs {
         if (!hasKey(context)) return list;    // no TMDB key: no recommendations
         Map<String, Boolean> have = new HashMap<>();   // one look per app, not per title (this runs every 15 s)
         for (Pick p : picks) {
-            if ((kind == null || kind.equals(p.kind)) && !(Config.HIDE_HORROR && p.scary)
+            if ((kind == null || kind.equals(p.kind)) && !unwanted(p)
                     && (!p.detailed || (p.pkg != null && have.computeIfAbsent(p.pkg, this::installed)))) list.add(p);   // app missing: skip
         }
         if (list.isEmpty()) return list;
@@ -336,7 +337,7 @@ final class Recs {
         for (Pick p : wanted()) if (hasImage(p) && seen.add(franchise(p.title))) out.add(p);
         Map<String, Boolean> have = new HashMap<>();
         for (Pick p : picks) {
-            if (Config.HIDE_HORROR && p.scary) continue;
+            if (unwanted(p)) continue;
             if (p.detailed && p.pkg != null && have.computeIfAbsent(p.pkg, this::installed) && hasImage(p)
                     && seen.add(franchise(p.title))) out.add(p);
         }
@@ -425,8 +426,7 @@ final class Recs {
         StringBuilder ids = new StringBuilder();
         for (int id : services.keySet()) ids.append(ids.length() == 0 ? "" : "|").append(id);
         String common = "&language=" + lang() + "&watch_region=" + REGION + "&with_watch_monetization_types=flatrate&include_adult=false"
-                + "&sort_by=popularity.desc&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8")
-                + without();
+                + "&sort_by=popularity.desc&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8");
         // 1. Trending this week (TMDB goes by what people are watching and searching for right now), only what is
         //    on one of the TV's services: the details say where (and are then ready).
         List<Pick> hotMovies = new ArrayList<>(), hotShows = new ArrayList<>();
@@ -446,9 +446,9 @@ final class Recs {
         // 2. Recent releases on the TV's services: movies from the past year and shows with a new episode in the
         //    past 3 months.
         JSONArray movies = get("/discover/movie?vote_count.gte=30&primary_release_date.gte=" + day(-365)
-                + "&primary_release_date.lte=" + day(0) + common).getJSONArray("results");
+                + "&primary_release_date.lte=" + day(0) + common + without(false)).getJSONArray("results");
         JSONArray shows = get("/discover/tv?vote_count.gte=20&air_date.gte=" + day(-90) + "&air_date.lte=" + day(0)
-                + common).getJSONArray("results");
+                + common + without(true)).getJSONArray("results");
         List<Pick> newMovies = new ArrayList<>(), newShows = new ArrayList<>();
         for (int i = 0; i < movies.length(); i++) add(newMovies, movies.getJSONObject(i), "movie");
         for (int i = 0; i < shows.length(); i++) add(newShows, shows.getJSONObject(i), "tv");
@@ -489,10 +489,13 @@ final class Recs {
         return String.format(Locale.US, "%04d-%02d-%02d", cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH));
     }
 
-    /** The genres the person left out (discover's without_genres: a title with any of them is skipped). */
-    private static String without() {
+    /**
+     * The genres the person left out (discover's without_genres: a title with any of them is skipped); for shows
+     * (`tv`), animation too with hide_animated_shows (cartoons and anime series; animated movies stay).
+     */
+    private static String without(boolean tv) {
         List<String> ids = new ArrayList<>();
-        if (Config.HIDE_ANIMATION) ids.add(String.valueOf(ANIMATION));
+        if (Config.HIDE_ANIMATION || (tv && Config.HIDE_ANIMATED_SHOWS)) ids.add(String.valueOf(ANIMATION));
         if (Config.HIDE_HORROR) ids.add(String.valueOf(HORROR));
         return ids.isEmpty() ? "" : "&without_genres=" + String.join(",", ids);
     }
@@ -502,12 +505,25 @@ final class Recs {
         if (backdrop.isEmpty() || "null".equals(backdrop)) return;
         if (Config.HIDE_ANIMATION && animated(o)) return;
         if (Config.HIDE_HORROR && hasGenre(o.optJSONArray("genre_ids"), HORROR)) return;
+        if (Config.HIDE_ANIMATED_SHOWS && kind.equals("tv") && hasGenre(o.optJSONArray("genre_ids"), ANIMATION)) return;
         Pick p = new Pick();
         p.id = o.optInt("id");
         p.kind = kind;
         p.title = o.optString(kind.equals("movie") ? "title" : "name");
         p.backdrop = backdrop;
         list.add(p);
+    }
+
+    /** The details' genres (objects with an id) include Animation. */
+    private static boolean animatedGenre(JSONObject o) {
+        JSONArray genres = o.optJSONArray("genres");
+        for (int i = 0; genres != null && i < genres.length(); i++) if (genres.optJSONObject(i).optInt("id") == ANIMATION) return true;
+        return false;
+    }
+
+    /** Left out of the picks by the person's settings (horror, animated series). */
+    static boolean unwanted(Pick p) {
+        return (Config.HIDE_HORROR && p.scary) || (Config.HIDE_ANIMATED_SHOWS && p.cartoon);
     }
 
     private static boolean hasGenre(JSONArray ids, int genre) {
@@ -543,6 +559,7 @@ final class Recs {
         if (best != null) p.backdrop = best;
         p.logo = bestLogo(o.optJSONObject("images"));
         p.scary = scary(o);
+        p.cartoon = p.kind.equals("tv") && animatedGenre(o);
         List<String> parts = new ArrayList<>();
         JSONArray genres = o.optJSONArray("genres");
         if (p.kind.equals("tv")) parts.add(Ui.tr("Series"));
@@ -759,7 +776,7 @@ final class Recs {
 
     private long sourceStamp() {
         long stamp = (Config.TMDB_KEY.hashCode() * 31L + REGION.hashCode()) * 31L + (Config.HIDE_ANIMATION ? 1 : 0)
-                + (Config.HIDE_HORROR ? 2 : 0);
+                + (Config.HIDE_HORROR ? 2 : 0) + (Config.HIDE_ANIMATED_SHOWS ? 4 : 0);
         for (String[] service : SERVICES) stamp = stamp * 31L + (installed(service[2]) ? service[2].hashCode() : 0);
         return stamp;
     }
@@ -949,7 +966,7 @@ final class Recs {
             for (Pick p : picks) {
                 a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop).put("link", p.link == null ? "" : p.link)
                         .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
-                        .put("detailed", p.detailed).put("logo", p.logo == null ? "" : p.logo).put("scary", p.scary));
+                        .put("detailed", p.detailed).put("logo", p.logo == null ? "" : p.logo).put("scary", p.scary).put("cartoon", p.cartoon));
             }
             SharedPreferences.Editor e = cache.edit().putString("picks", a.toString()).putInt("period", period).putLong("listAt", listAt)
                     .putString("language", listLanguage)
@@ -980,6 +997,7 @@ final class Recs {
             p.detailed = o.optBoolean("detailed");
             p.logo = o.optString("logo").isEmpty() ? null : o.optString("logo");
             p.scary = o.optBoolean("scary");
+            p.cartoon = o.optBoolean("cartoon");
             out.add(p);
         }
         return out;

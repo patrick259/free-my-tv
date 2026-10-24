@@ -1,0 +1,99 @@
+# Amazon packages turned off (pm disable-user --user 0, nothing uninstalled) on the Insignia 4K Fire TV
+# (AFTDCT31, "duckie", Fire OS 7.7.1.7). From CleanYourTV's list for this model (examples/insignia-ns55f301na25),
+# minus what this household uses. Apply, check or undo with tools/firetv-debloat.sh.
+#
+# Kept on: Alexa and its voice engine (voice remote, smart home), casting (Miracast, DIAL, AirPlay), Prime Video
+# (com.amazon.avod, com.amazon.firebat), Amazon Luna (com.amazon.spiderpork), firmware updates
+# (device.software.ota is protected anyway), the sign-in helper some apps log in with (ottssocompanionapp), Matter,
+# Live TV and its settings (HDMI inputs), and com.amazon.wifilocker (it may own the saved Wi-Fi networks: Android
+# deletes a disabled app's networks).
+# Amazon refuses some (protected): the script reports them and moves on.
+
+# Telemetry, ACR and analytics
+com.amazon.tv.acr
+com.amazon.device.metrics
+com.amazon.client.metrics
+com.amazon.client.metrics.api
+com.amazon.device.logmanager
+com.amazon.dp.logger
+com.amazon.perfcollection
+com.amazon.perfc
+com.amazon.tv.fw.metrics
+com.amazon.wirelessmetrics.service
+com.amazon.device.crashmanager
+com.amazon.hybridadidservice
+com.amazon.privacypassservice
+com.fireos.usagestats.proxy
+com.amazon.livedeviceservice
+com.amazon.audiolatencymeasurer
+com.amazon.logan
+
+# Sponsored ads, shopping and home screen recommendations
+com.amazon.ftvads.deeplinking
+com.amazon.media.recommendations
+com.amazon.tv.democontent.provider
+com.amazon.sneakpeek
+com.amazon.shoptv.firetv.client
+com.amazon.shoptv.client
+com.amazon.tv.csapp
+com.amazon.minerva.client.api
+com.amazon.providers.contentsupport
+
+# Background sync and cloud services
+com.amazon.device.sync
+com.amazon.sync.service
+com.amazon.sync.provider.ipc
+com.amazon.device.sync.sdk.internal
+com.amazon.device_remote_config_sync_service
+com.amazon.securitysyncclient
+com.amazon.ods.kindleconnect
+com.amazon.tcomm
+com.amazon.tcomm.client
+com.amazon.tcomm.jackson
+com.amazon.neopactservice
+com.amazon.neodelegate
+com.amazon.cloud9
+com.amazon.fireos.cirruscloud
+com.fireos.arcus.proxy
+com.amazon.alta.h2clientservice
+com.amazon.rtcsessioncontroller
+com.amazon.communication.discovery
+com.amazon.dpcclient
+com.amazon.uxnotification
+com.amazon.tv.notificationcenter
+com.amazon.systemnotices
+
+# Tutorials, setup, demo and leftovers
+com.amazon.tv.releasenotes
+com.amazon.storm.lightning.tutorial
+com.amazon.tmm.tutorial
+com.amazon.tv.oobe
+com.amazon.tv.ooberesource
+com.amazon.tv.legal.notices
+com.amazon.tv.legalresources
+com.amazon.tv.support
+com.amazon.cardinal
+com.amazon.csm.htmlruntime
+com.amazon.recess
+com.amazon.diode
+com.amazon.platform.fdrw
+com.amazon.kso.blackbird
+com.amazon.dummy.settings
+com.amazon.dummy.contacts
+com.amazon.dummy.calendar
+com.amazon.dummy.gallery
+com.amazon.dummy.alarmclock
+com.amazon.dummy.music
+com.amazon.tv.legal.notices.overlay.localisation.common
+
+# Preloaded Amazon apps nobody here uses
+com.amazon.bueller.photos
+com.amazon.bueller.music
+com.amazon.gamehub
+com.amazon.tv.localgallery
+com.amazon.minitv.android.app
+com.amazon.tv.website_launcher
+com.amazon.tahoe
+
+# Forced update prompts (the updater itself stays: device.software.ota)
+com.amazon.tv.forcedotaupdater.v2
