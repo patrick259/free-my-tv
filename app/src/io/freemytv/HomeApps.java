@@ -58,6 +58,9 @@ final class HomeApps {
     static final int APP = 0, LIVE_TV = 1, INPUT = 2, ALL_APPS = 3, SETTINGS = 4, ANDROID_SETTINGS = 5, DEVICE = 6;
     /** The "HDMI Inputs" button: opens the bottom drawer on the inputs (the home screen handles it). */
     static final int INPUTS = 7;
+    /** Fire TV: the Amazon Appstore. */
+    static final int APPSTORE = 8;
+    static final String VENEZIA = "com.amazon.venezia";
     /** Image size of each card (16:9; on screen it shows up to ~330 px wide). */
     static final int TILE_W = 384, TILE_H = 216;
 
@@ -461,6 +464,12 @@ final class HomeApps {
         synchronized (HomeApps.class) {
             TILES.keySet().removeIf(k -> k.contains(".") && !seen.contains(k));
         }
+        if (HomeMode.AMAZON && c.getPackageManager().getLaunchIntentForPackage(VENEZIA) != null) {
+            Item store = shortcut(APPSTORE, "appstore", "Appstore", "apps");
+            store.pkg = VENEZIA;
+            store.setTile(appTile(c, null, VENEZIA, 0));
+            items.add(store);
+        }
         items.add(special(c, SETTINGS, "freemytv-settings", "Free My TV", "sparkles"));
         return items;
     }
@@ -494,6 +503,10 @@ final class HomeApps {
                 break;
             case SETTINGS:
                 intent = new Intent().setComponent(new ComponentName(a, SettingsActivity.class));
+                break;
+            case APPSTORE:
+                // The store's own home (its links and launcher entry go through Amazon's home screen instead).
+                intent = new Intent().setComponent(new ComponentName(VENEZIA, VENEZIA + ".ade.ADEHomeActivity"));
                 break;
             case ANDROID_SETTINGS:
                 intent = new Intent(Settings.ACTION_SETTINGS);
