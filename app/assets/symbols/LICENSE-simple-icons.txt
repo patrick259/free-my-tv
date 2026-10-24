@@ -1,0 +1,3 @@
+apple.png is the Apple logo from Simple Icons (https://simpleicons.org, icons/apple.svg), CC0 1.0 Universal,
+rendered white and trimmed like the Material Symbols here. Apple is a trademark of Apple Inc.; the logo only labels an
+HDMI input named "Apple TV".

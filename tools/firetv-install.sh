@@ -21,4 +21,6 @@ adb -s "$tv" shell settings put secure enabled_accessibility_services "$list" </
 adb -s "$tv" shell settings put secure accessibility_enabled 1 </dev/null
 # The apps' "Continue watching" rows (WatchNext): a permission only adb can grant.
 adb -s "$tv" shell pm grant io.freemytv android.permission.READ_TV_LISTINGS </dev/null
-echo "Installed; Home button service on, Continue watching readable."
+# The apps used last ("Jump back in"): usage access.
+adb -s "$tv" shell appops set io.freemytv GET_USAGE_STATS allow </dev/null
+echo "Installed; Home button service on, Continue watching and recent apps readable."

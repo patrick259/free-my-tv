@@ -2,6 +2,8 @@ package io.freemytv;
 
 import android.app.Activity;
 import android.app.ActivityOptions;
+import android.app.usage.UsageStats;
+import android.app.usage.UsageStatsManager;
 import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
 import android.content.Context;
@@ -74,6 +76,7 @@ final class HomeApps {
         float logoInk;      // fraction of the logo with ink (thin logos are drawn larger, with the same "weight")
         float logoScale = 1; // size tweak by eye (compact logos need more)
         boolean connected = true;
+        long lastUsed;      // recent(): when it was last on screen (wall clock)
 
         void setTile(Bitmap b) {
             tile = b;
@@ -163,27 +166,71 @@ final class HomeApps {
         int max = maxShelf(c);
         for (String pkg : shelfPackages(c)) {
             if (items.size() >= max) break;
-            Intent launch = launchIntent(pm, pkg);
-            if (launch == null) continue;
-            ResolveInfo ri = pm.resolveActivity(launch, 0);
-            String[] d = known(pkg);
-            Item it = new Item();
-            it.kind = APP;
-            it.pkg = pkg;
-            if (d == null) {
-                // An app picked in Settings > Shelf that isn't in SHELF: its own name and TV art.
-                it.key = pkg;
-                it.label = ri != null ? String.valueOf(ri.loadLabel(pm)) : pkg;
-                it.setTile(appTile(c, null, pkg, 0));
-            } else {
-                it.key = d[0];
-                it.label = d[1];
-                it.logo = shelfLogo(c, d[0], d[2], d[4], extract);
-                if (it.logo == null) it.setTile(appTile(c, d[0], d[2], 0xFF000000 | Integer.parseInt(d[3], 16)));
-                if (it.logo != null) it.logoInk = ink(it.logo);
-                it.logoDark = ownLogoCached(c, d[0] + "-dark");
-                it.logoScale = Float.parseFloat(d[5]);
-            }
+            Item it = appItem(c, pm, pkg, extract);
+            if (it != null) items.add(it);
+        }
+        return items;
+    }
+
+    /** An app as the shelf draws it (its logo on a dark card), or null if it can't be opened. */
+    private static Item appItem(Context c, PackageManager pm, String pkg, boolean extract) {
+        Intent launch = launchIntent(pm, pkg);
+        if (launch == null) return null;
+        ResolveInfo ri = pm.resolveActivity(launch, 0);
+        String[] d = known(pkg);
+        Item it = new Item();
+        it.kind = APP;
+        it.pkg = pkg;
+        if (d == null) {
+            // An app picked in Settings > Shelf that isn't in SHELF: its own name and TV art.
+            it.key = pkg;
+            it.label = ri != null ? String.valueOf(ri.loadLabel(pm)) : pkg;
+            it.setTile(appTile(c, null, pkg, 0));
+        } else {
+            it.key = d[0];
+            it.label = d[1];
+            it.logo = shelfLogo(c, d[0], d[2], d[4], extract);
+            if (it.logo == null) it.setTile(appTile(c, d[0], d[2], 0xFF000000 | Integer.parseInt(d[3], 16)));
+            if (it.logo != null) it.logoInk = ink(it.logo);
+            it.logoDark = ownLogoCached(c, d[0] + "-dark");
+            it.logoScale = Float.parseFloat(d[5]);
+        }
+        return it;
+    }
+
+    /**
+     * The apps used last, newest first (the hero's "Jump back in"): from the TV's usage records, which need usage
+     * access (granted over adb: appops set io.freemytv GET_USAGE_STATS allow). Without it, or with nothing used in two
+     * weeks, the list is empty. Only apps "All Apps" would list; never this one or the live TV apps.
+     */
+    static List<Item> recent(Context c, int max) {
+        List<Item> items = new ArrayList<>();
+        UsageStatsManager usage = c.getSystemService(UsageStatsManager.class);
+        if (usage == null) return items;
+        long now = System.currentTimeMillis();
+        Map<String, UsageStats> stats;
+        try {
+            stats = usage.queryAndAggregateUsageStats(now - 14 * 24 * 3_600_000L, now);
+        } catch (RuntimeException e) {
+            return items;
+        }
+        if (stats == null || stats.isEmpty()) return items;
+        Set<String> openable = new HashSet<>();
+        for (String[] app : launchable(c)) openable.add(app[0]);
+        openable.remove(c.getPackageName());
+        openable.removeAll(java.util.Arrays.asList(LIVE_TV_APPS));
+        openable.removeAll(HIDDEN);
+        List<UsageStats> used = new ArrayList<>();
+        for (UsageStats s : stats.values()) {
+            if (s.getLastTimeUsed() > 0 && s.getTotalTimeInForeground() > 0 && openable.contains(s.getPackageName())) used.add(s);
+        }
+        Collections.sort(used, (a, b) -> Long.compare(b.getLastTimeUsed(), a.getLastTimeUsed()));
+        PackageManager pm = c.getPackageManager();
+        for (UsageStats s : used) {
+            if (items.size() >= max) break;
+            Item it = appItem(c, pm, s.getPackageName(), true);
+            if (it == null) continue;
+            it.lastUsed = s.getLastTimeUsed();
             items.add(it);
         }
         return items;
@@ -419,7 +466,8 @@ final class HomeApps {
     /** Words in a device's name, by the icon they pick: a game console, a streaming box, a sound system, a TV box. */
     private static final String[][] DEVICE_WORDS = {
         {"gamepad", "playstation", "ps5", "ps4", "ps3", "xbox", "nintendo", "switch", "steam deck", "console", "game"},
-        {"play", "apple tv", "chromecast", "fire tv", "firetv", "roku", "shield", "mi box", "tv box", "tvbox", "stick", "streaming", "google tv", "android tv"},
+        {"apple", "apple tv", "appletv"},
+        {"play", "chromecast", "fire tv", "firetv", "roku", "shield", "mi box", "tv box", "tvbox", "stick", "streaming", "google tv", "android tv"},
         {"speaker", "soundbar", "sound bar", "receiver", "denon", "yamaha", "marantz", "onkyo", "bose", "sonos", "jbl", "audio", "home theater"},
         {"tv", "cable", "set-top", "decoder", "decodificador", "tuner", "sky", "claro", "vivo"},
     };
@@ -433,13 +481,13 @@ final class HomeApps {
         return "hdmi";
     }
 
-    /** Installed, enabled TV apps that are not on the home screen (the TV's Settings is among them), plus our own. */
+    /**
+     * Every installed, enabled TV app, the shelf's too (holding OK adds or removes one there), with the TV's Settings
+     * among them, plus our own.
+     */
     static List<Item> others(Context c) {
         PackageManager pm = c.getPackageManager();
         Set<String> skip = new HashSet<>();
-        // A built-in app is skipped only while it is on the shelf: one the person took off must still be listed here.
-        List<String> onShelf = shelfPackages(c);
-        for (String[] d : SHELF) if (onShelf.contains(d[2])) skip.add(d[2]);
         skip.addAll(java.util.Arrays.asList(LIVE_TV_APPS));
         skip.add(c.getPackageName());
         skip.addAll(HIDDEN);
