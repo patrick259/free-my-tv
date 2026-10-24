@@ -8,16 +8,13 @@ Open items for the Insignia Fire TV build (branch `wip/fire-home-redirect`). New
 - [x] **"Return to last input" on power-on.** Fire OS records the input for power-on only when its own player had it.
       FreeMyTV now remembers the input its player had at power-off and reopens it, and holds the Home redirect while
       Amazon resumes one of its own (`PowerOn`). Tested with sleep/wake on Vsee.
-- [ ] **Fire TV remote doesn't control the Apple TV** (and opening it doesn't wake it) in FreeMyTV's input player.
-      HDMI-CEC commands need `android.permission.HDMI_CEC` (system apps only); Amazon's player and input-switch service
-      both refuse us. Options: use the Apple TV remote, or find another exported Amazon entry point.
 
 ## Scores page
 - [x] **F1 tab redesign:** weekend card (round, circuit map, countdown, sessions with winners and flags), drivers with
       team stripes, flags and gaps, constructors as bars. Driver seats are a 2026 table in `ScoresActivity.SEATS`.
 
 ## Hero
-- [x] **F1: circuit outline + F1 logo** on F1 red (F1's white track outlines, `Sports.TRACKS`; news photo as fallback).
+- [x] **F1: circuit outline, country flag and F1 logo** on F1 red (F1's white track outlines, `Sports.TRACKS`; news photo as fallback).
 - [ ] Watch on a game opens the channel in YouTube TV (needs the `watch/<code>` for Fox, ABC, ESPN, CBS, NBC,
       NFL Network from tv.youtube.com/live).
 - [ ] Netflix title links get lost at its "Who's watching" screen on a cold start (works when Netflix is open).

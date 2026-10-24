@@ -52,14 +52,24 @@ final class Sports {
      * in this order: "Bahrain Grand Prix in Malaysia" and "Qatar Airways Australian" before plain Bahrain and Qatar.
      */
     private static final String[][] TRACKS = {
-        {"in Malaysia", "sepang"}, {"Australian", "melbourne"}, {"Chinese", "shanghai"}, {"Japanese", "suzuka"},
-        {"Bahrain", "sakhir"}, {"Saudi", "jeddah"}, {"Miami", "miami"}, {"Canadian", "montreal"}, {"Monaco", "montecarlo"},
-        {"Barcelona", "catalunya"}, {"Austrian", "spielberg"}, {"British", "silverstone"}, {"Belgian", "spafrancorchamps"},
-        {"Hungarian", "hungaroring"}, {"Dutch", "zandvoort"}, {"Italian", "monza"}, {"Emilia", "imola"},
-        {"Spanish", "madring"}, {"Azerbaijan", "baku"}, {"Singapore", "singapore"}, {"United States", "austin"},
-        {"Mexico", "mexicocity"}, {"São Paulo", "interlagos"}, {"Sao Paulo", "interlagos"}, {"Las Vegas", "lasvegas"},
-        {"Qatar Grand Prix", "lusail"}, {"Abu Dhabi", "yasmarinacircuit"},
+        {"in Malaysia", "sepang", "mas"}, {"Australian", "melbourne", "aus"}, {"Chinese", "shanghai", "chn"},
+        {"Japanese", "suzuka", "jpn"}, {"Bahrain", "sakhir", "bhr"}, {"Saudi", "jeddah", "ksa"}, {"Miami", "miami", "usa"},
+        {"Canadian", "montreal", "can"}, {"Monaco", "montecarlo", "mon"}, {"Barcelona", "catalunya", "esp"},
+        {"Austrian", "spielberg", "aut"}, {"British", "silverstone", "gbr"}, {"Belgian", "spafrancorchamps", "bel"},
+        {"Hungarian", "hungaroring", "hun"}, {"Dutch", "zandvoort", "ned"}, {"Italian", "monza", "ita"},
+        {"Emilia", "imola", "ita"}, {"Spanish", "madring", "esp"}, {"Azerbaijan", "baku", "aze"},
+        {"Singapore", "singapore", "sgp"}, {"United States", "austin", "usa"}, {"Mexico", "mexicocity", "mex"},
+        {"São Paulo", "interlagos", "bra"}, {"Sao Paulo", "interlagos", "bra"}, {"Las Vegas", "lasvegas", "usa"},
+        {"Qatar Grand Prix", "lusail", "qat"}, {"Abu Dhabi", "yasmarinacircuit", "uae"},
     };
+
+    /** The flag of the race's country (ESPN's flags), or null. */
+    static String flagUrl(String race) {
+        for (String[] t : TRACKS) {
+            if (race.contains(t[0])) return "https://a.espncdn.com/i/teamlogos/countries/500/" + t[2] + ".png";
+        }
+        return null;
+    }
 
     /** The circuit's outline for this race ("MSC Cruises United States Grand Prix"), or null if we don't know it. */
     static String trackUrl(String race) {
@@ -92,7 +102,7 @@ final class Sports {
     /** One game (or F1 session) as the hero needs it. */
     static final class Game {
         String id, league, away, home, awayLogo, homeLogo, leagueLogo, place;
-        String track;           // F1: the circuit's outline
+        String track, flag;     // F1: the circuit's outline, the country's flag
         String photo;           // F1 without a known circuit: a photo from this race weekend (ESPN's news)
         int awayColor, homeColor;
         long start;
@@ -231,6 +241,7 @@ final class Sports {
                 Recs.Pick p = pick(g, app);
                 p.title = e.optString("name").replaceFirst(F1_SPONSORS, "");
                 g.track = trackUrl(e.optString("name"));
+                g.flag = flagUrl(e.optString("name"));
                 if (g.track == null) {
                     if (news == null) news = get("racing/f1/news?limit=12");
                     g.photo = racePhoto(news, p.title);
@@ -476,7 +487,30 @@ final class Sports {
         if (mark != outline) mark.recycle();
         outline.recycle();
         if (g.leagueLogo != null) badge(c, paint, g.leagueLogo, w * 0.88f, h * 0.68f, h * 0.17f);
+        if (g.flag != null) flag(c, paint, g.flag, w * 0.765f, h * 0.68f, h * 0.075f);
         return true;
+    }
+
+    /** The race country's flag, `height` tall with rounded corners and a faint edge, centered at (cx, cy). */
+    private static void flag(Canvas c, Paint paint, String url, float cx, float cy, float height) {
+        Bitmap b = load(url);
+        if (b == null) return;
+        Bitmap f = trim(b);
+        float fw = height * f.getWidth() / f.getHeight(), r = height * 0.14f;
+        RectF box = new RectF(cx - fw / 2, cy - height / 2, cx + fw / 2, cy + height / 2);
+        paint.setShader(new android.graphics.BitmapShader(f, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP));
+        android.graphics.Matrix m = new android.graphics.Matrix();
+        m.setRectToRect(new RectF(0, 0, f.getWidth(), f.getHeight()), box, android.graphics.Matrix.ScaleToFit.FILL);
+        paint.getShader().setLocalMatrix(m);
+        c.drawRoundRect(box, r, r, paint);
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(height * 0.03f);
+        paint.setColor(0x40FFFFFF);
+        c.drawRoundRect(box, r, r, paint);
+        paint.setStyle(Paint.Style.FILL);
+        if (f != b) f.recycle();
+        b.recycle();
     }
 
     private static Bitmap load(String url) {
