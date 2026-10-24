@@ -64,6 +64,10 @@ public class RemoteKeyService extends AccessibilityService {
         CharSequence pkg = event.getPackageName();
         if (pkg != null) FireSettings.windowOf(this, pkg.toString());
         if (pkg == null || !HomeMode.AMAZON_LAUNCHER.contentEquals(pkg) || !HomeMode.amazonRedirect(this)) return;
+        // Its home screen only: the launcher also shows the search other apps open (the Appstore's), title pages
+        // and sign-ups, which should stay.
+        CharSequence cls = event.getClassName();
+        if (cls != null && !cls.toString().startsWith(HomeMode.AMAZON_LAUNCHER + ".ui.Home")) return;
         if (PowerOn.holding() || FireSettings.passing(this)) return;
         redirect();
     }
