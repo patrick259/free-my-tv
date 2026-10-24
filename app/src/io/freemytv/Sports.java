@@ -37,7 +37,8 @@ import java.util.concurrent.Executors;
  * Big games for the featured hero, most important first, from ESPN's public scoreboards (no key): Formula 1's
  * qualifying, sprint and race, then the postseason (the World Series, NFL playoffs, the College Football Playoff),
  * Monday Night Football, your teams' games (favorite_teams) and college games between two ranked teams; ordinary
- * games stay out, and so does anything no app on the TV carries. Each shows from the day before until it ends; Watch
+ * games stay out, and so does anything no app on the TV carries. Each shows on its day until it ends (the postseason
+ * and F1 from the day before); Watch
  * opens the app that carries it (a TV network → YouTube TV).
  * The hero's picture is drawn here: the two teams' colors and logos (the league's logo for F1).
  */
@@ -112,6 +113,7 @@ final class Sports {
         String track, flag;     // F1: the circuit's outline, the country's flag
         String photo;           // F1 without a known circuit: a photo from this race weekend (ESPN's news)
         int awayColor, homeColor;
+        int awayAlt, homeAlt;   // the teams' second colors: the background when a logo would vanish in the first
         long start;
         int weight;             // importance in the hero: the postseason, Monday Night Football, two ranked teams
         String state, detail;   // "pre", "in", "post"; ESPN's "Top 5th", "Q3 4:12"
@@ -130,6 +132,13 @@ final class Sports {
         this.changed = changed;
     }
 
+    private static boolean sameDay(long a, long b) {
+        Calendar x = Calendar.getInstance(), y = Calendar.getInstance();
+        x.setTimeInMillis(a);
+        y.setTimeInMillis(b);
+        return x.get(Calendar.YEAR) == y.get(Calendar.YEAR) && x.get(Calendar.DAY_OF_YEAR) == y.get(Calendar.DAY_OF_YEAR);
+    }
+
     /** The games to show now (finished ones and ones too far ahead left out), live first, then by start. */
     List<Recs.Pick> now() {
         if (!Config.SHOW_SPORTS) return new ArrayList<>();
@@ -138,7 +147,10 @@ final class Sports {
         for (Recs.Pick p : picks) {
             Game g = p.game;
             boolean live = "in".equals(g.state) || (g.start <= t && t - g.start < MAX_LIVE && !"post".equals(g.state));
-            if (live || ("pre".equals(g.state) && g.start - t < AHEAD)) out.add(p);
+            // Coming up: today's games only, except the postseason and Formula 1 (its weekend), up to a day ahead.
+            boolean soon = "pre".equals(g.state) && g.start - t < AHEAD
+                    && ("F1".equals(g.league) || g.weight >= POSTSEASON || sameDay(g.start, t));
+            if (live || soon) out.add(p);
         }
         Collections.sort(out, (a, b) -> {
             boolean fa = "F1".equals(a.game.league), fb = "F1".equals(b.game.league);
@@ -345,6 +357,8 @@ final class Sports {
         g.homeLogo = home.getJSONObject("team").optString("logo", null);
         g.awayColor = color(away);
         g.homeColor = color(home);
+        g.awayAlt = color(away, "alternateColor");
+        g.homeAlt = color(home, "alternateColor");
         state(g, c, e.optString("date"));
         Recs.Pick p = pick(g, app);
         boolean neutral = c.optBoolean("neutralSite");
@@ -431,8 +445,12 @@ final class Sports {
     }
 
     private static int color(JSONObject competitor) {
+        return color(competitor, "color");
+    }
+
+    private static int color(JSONObject competitor, String field) {
         try {
-            return 0xFF000000 | Integer.parseInt(competitor.getJSONObject("team").optString("color", "333333"), 16);
+            return 0xFF000000 | Integer.parseInt(competitor.getJSONObject("team").optString(field, "333333"), 16);
         } catch (NumberFormatException | JSONException e) {
             return 0xFF333333;
         }
@@ -514,7 +532,22 @@ final class Sports {
         Canvas c = new Canvas(out);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
         c.drawColor(0xFF0B0B0F);
+        boolean teams = g.track == null && g.photo == null && g.awayLogo != null;
+        Bitmap awayLogo = teams ? load(g.awayLogo) : null, homeLogo = teams ? load(g.homeLogo) : null;
+        // Each team's color behind its logo, or its second color when the logo would vanish in the first (Oregon's
+        // green O on Oregon green); a soft light behind the logo when neither stands apart.
         int away = deepen(g.awayColor), home = deepen(g.homeColor);
+        boolean awayGlow = false, homeGlow = false;
+        if (awayLogo != null) {
+            int ink = ink(awayLogo);
+            if (apart(ink, away) < APART && g.awayAlt != 0 && apart(ink, deepen(g.awayAlt)) > apart(ink, away)) away = deepen(g.awayAlt);
+            awayGlow = apart(ink, away) < APART;
+        }
+        if (homeLogo != null) {
+            int ink = ink(homeLogo);
+            if (apart(ink, home) < APART && g.homeAlt != 0 && apart(ink, deepen(g.homeAlt)) > apart(ink, home)) home = deepen(g.homeAlt);
+            homeGlow = apart(ink, home) < APART;
+        }
         paint.setShader(new LinearGradient(w * 0.38f, 0, w, h * 0.3f, new int[] {0xFF0B0B0F, away, home},
                 new float[] {0, 0.45f, 1}, Shader.TileMode.CLAMP));
         c.drawRect(0, 0, w, h, paint);
@@ -533,10 +566,35 @@ final class Sports {
         if (g.leagueLogo != null && g.awayLogo == null) {
             drawLogo(c, paint, g.leagueLogo, w * 0.72f, cy, h * 0.5f);
         } else {
-            drawLogo(c, paint, g.awayLogo, w * 0.6f, cy, size);
-            drawLogo(c, paint, g.homeLogo, w * 0.84f, cy, size);
+            drawLogo(c, paint, awayLogo, w * 0.6f, cy, size, awayGlow);
+            drawLogo(c, paint, homeLogo, w * 0.84f, cy, size, homeGlow);
         }
         return out;
+    }
+
+    /** How far apart two colors look (RGB distance, weighted for the eye); under APART a logo gets lost. */
+    private static final double APART = 95;
+
+    private static double apart(int a, int b) {
+        double dr = ((a >> 16) & 255) - ((b >> 16) & 255), dg = ((a >> 8) & 255) - ((b >> 8) & 255), db = (a & 255) - (b & 255);
+        return Math.sqrt(2 * dr * dr + 4 * dg * dg + 3 * db * db) / 3;
+    }
+
+    /** A logo's main color: the average of its opaque pixels. */
+    private static int ink(Bitmap b) {
+        long r = 0, gr = 0, bl = 0, n = 0;
+        int step = Math.max(1, Math.min(b.getWidth(), b.getHeight()) / 60);
+        for (int y = 0; y < b.getHeight(); y += step) {
+            for (int x = 0; x < b.getWidth(); x += step) {
+                int p = b.getPixel(x, y);
+                if ((p >>> 24) < 200) continue;
+                r += (p >> 16) & 255;
+                gr += (p >> 8) & 255;
+                bl += p & 255;
+                n++;
+            }
+        }
+        return n == 0 ? 0xFF808080 : 0xFF000000 | (int) (r / n) << 16 | (int) (gr / n) << 8 | (int) (bl / n);
     }
 
     /**
@@ -689,17 +747,18 @@ final class Sports {
     }
 
     private static void drawLogo(Canvas c, Paint paint, String url, float cx, float cy, float size) throws IOException {
-        if (url == null) return;
-        HttpURLConnection con = (HttpURLConnection) new URL(url).openConnection();
-        con.setConnectTimeout(8000);
-        con.setReadTimeout(15000);
-        Bitmap logo;
-        try (InputStream in = con.getInputStream()) {
-            logo = BitmapFactory.decodeStream(in);
-        } finally {
-            con.disconnect();
-        }
+        drawLogo(c, paint, url == null ? null : load(url), cx, cy, size, false);
+    }
+
+    /** A logo `size` across at (cx, cy), on a soft light when it would vanish in the background; recycled after. */
+    private static void drawLogo(Canvas c, Paint paint, Bitmap logo, float cx, float cy, float size, boolean glow) {
         if (logo == null) return;
+        if (glow) {
+            paint.setShader(new RadialGradient(cx, cy, size * 0.75f, new int[] {0x8CFFFFFF, 0x40FFFFFF, 0x00FFFFFF},
+                    new float[] {0, 0.55f, 1}, Shader.TileMode.CLAMP));
+            c.drawCircle(cx, cy, size * 0.75f, paint);
+            paint.setShader(null);
+        }
         float scale = size / Math.max(logo.getWidth(), logo.getHeight());
         float lw = logo.getWidth() * scale, lh = logo.getHeight() * scale;
         c.drawBitmap(logo, null, new RectF(cx - lw / 2, cy - lh / 2, cx + lw / 2, cy + lh / 2), paint);
