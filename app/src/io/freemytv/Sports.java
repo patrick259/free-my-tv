@@ -84,6 +84,9 @@ final class Sports {
         return null;
     }
 
+    /** Apple TV's Formula 1 channel (where apple.co/f1onappletv leads): Watch opens it rather than the app's home. */
+    private static final String F1_ON_APPLE_TV = "https://tv.apple.com/us/channel/formula-1/tvs.sbd.241000";
+
     /** Network (ESPN's name, lowercase) → app on the TV (key for Recs' service names, package). First installed wins. */
     private static final String[][] NETWORKS = {
         {"prime video", "prime", "com.amazon.firebat"},
@@ -298,6 +301,7 @@ final class Sports {
                     g.photo = racePhoto(news, p.title);
                 }
                 p.label = ("FORMULA 1 · " + session).toUpperCase(Ui.locale());
+                if ("appletv".equals(app[1])) p.link = F1_ON_APPLE_TV;
                 p.meta = when(g) + (g.place.isEmpty() ? "" : " · " + g.place) + " · " + app[3];
                 add(out, p);
             }

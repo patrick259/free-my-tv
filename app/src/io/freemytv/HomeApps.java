@@ -503,8 +503,12 @@ final class HomeApps {
                 if (intent != null && it.uri != null) {
                     intent = new Intent(Intent.ACTION_VIEW, titleUri(it.uri)).addCategory(Intent.CATEGORY_BROWSABLE).setPackage(it.pkg);
                     // A running app only comes to the front and drops the address (Prime Video): start it afresh. Not
-                    // Netflix: started afresh it asks who's watching and forgets the title; running, it opens it.
-                    if (!"com.netflix.ninja".equals(it.pkg)) intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                    // Netflix: started afresh it asks who's watching and forgets the title; running, it opens it. Not
+                    // Apple TV either: started afresh while running it crashes. It takes the address only when it isn't
+                    // running (Fire OS won't let us end it); running, it comes back where it was.
+                    if (!"com.netflix.ninja".equals(it.pkg) && !it.pkg.startsWith("com.apple.atve.")) {
+                        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                    }
                 }
                 break;
             case LIVE_TV:
