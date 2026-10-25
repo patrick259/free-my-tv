@@ -130,6 +130,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     });
     private final RectF a11yRect = new RectF();
     private final Layer sky, heroLayer, status, platter, tiles, drawerLayer, sheetLayer, toastLayer;
+    /** The weather card's moving sky (rain, snow, clouds...), between the background and the hero's text. */
+    private final WeatherFx fx;
     private int zone = Z_SHELF;
 
     // Night look (like Apple's "Automatic" appearance): darker from sunset to sunrise, with a 2 s transition.
@@ -227,6 +229,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final android.graphics.Matrix camMatrix = new android.graphics.Matrix();
     private final Paint camEdge = new Paint(Paint.ANTI_ALIAS_FLAG);
     private Paint camName, camWhen;
+    private Paint wxBig, wxCond, wxRange;
 
     // "All Apps" sheet
     private List<HomeApps.Item> others = new ArrayList<>();
@@ -391,6 +394,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         setFocusable(true);
         setFocusableInTouchMode(true);     // keeps focus if Fire OS switches to touch mode (else the next arrow is eaten)
         sky = new Layer(a, SKY);
+        fx = new WeatherFx(a);
+        fx.setVisibility(INVISIBLE);
         heroLayer = new Layer(a, HERO);
         status = new Layer(a, STATUS);
         platter = new Layer(a, PLATTER);
@@ -403,7 +408,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         // frame cost more than drawing straight to the screen (measured: focus on the picks 33 → 12 ms a frame, the
         // drawer 19 → 17 ms).
         for (View v : new View[] {heroLayer, status, platter, tiles, drawerLayer, sheetLayer}) v.setLayerType(Ui.LEGACY ? LAYER_TYPE_NONE : LAYER_TYPE_HARDWARE, null);
-        for (View v : new View[] {sky, heroLayer, status, platter, tiles, drawerLayer, sheetLayer, toastLayer}) {
+        for (View v : new View[] {sky, fx, heroLayer, status, platter, tiles, drawerLayer, sheetLayer, toastLayer}) {
             v.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);   // TalkBack reads the items (Spoken)
             addView(v);
         }
@@ -471,6 +476,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         handler.removeCallbacks(holdStart);
         okHeld = holdArmed = false;
         Choreographer.getInstance().removeFrameCallback(this);
+        fx.stop();
         handler.removeCallbacks(tick);
         handler.removeCallbacks(reloadSoon);
         data.removeListener(this);
@@ -555,6 +561,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int width = MeasureSpec.getSize(widthSpec), height = MeasureSpec.getSize(heightSpec);
         float kk = width / 1920f;
         measure(sky, width, height);
+        measure(fx, width, height);
         measure(heroLayer, width, Math.round(790 * kk));
         measure(status, Math.round(1160 * kk), Math.round(240 * kk));
         // Sized to what they draw (the glass and its shadow; the grown tiles and their shadows): smaller layers are
@@ -575,6 +582,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int width = r - l, height = b - t;
         float kk = width / 1920f;
         sky.layout(0, 0, width, height);
+        fx.layout(0, 0, width, height);
         place(heroLayer, 0, 0);
         place(status, width - status.getMeasuredWidth(), 0);
         place(platter, 0, Math.round(750 * kk));
@@ -653,6 +661,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         rowTitle = Ui.text(Ui.semibold, 25 * k, 0xB3FFFFFF);
         drawerLabel = Ui.text(Ui.medium, 23 * k, 0xEBFFFFFF);
         drawerLabel.setTextAlign(Paint.Align.CENTER);
+        // The weather card's text block (the old Yahoo Weather's): the sky in words, ↑ high ↓ low, the temperature large.
+        wxBig = Ui.numbers(Ui.thin, 250 * k, 0xFFFFFFFF);
+        wxBig.setShadowLayer(30 * k, 0, 3 * k, 0x59000000);
+        wxCond = Ui.text(Ui.medium, 38 * k, 0xFFFFFFFF);
+        wxCond.setShadowLayer(16 * k, 0, 1 * k, 0x80000000);
+        wxRange = Ui.numbers(Ui.regular, 34 * k, 0xF2FFFFFF);
+        wxRange.setShadowLayer(16 * k, 0, 1 * k, 0x80000000);
         camName = Ui.text(Ui.semibold, 22 * k, 0xFFFFFFFF);
         camWhen = Ui.numbers(Ui.medium, 19 * k, 0xCCFFFFFF);
         camWhen.setTextAlign(Paint.Align.RIGHT);
@@ -734,6 +749,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (!picksOn()) heroLayer.invalidate();
         }
 
+        updateFx();
         // Busy: something is moving, or the sheet or the drawer is open.
         boolean busy = tilesMoving || statusMoving || heroMoving || drawerItemsMoving || gridMoving || drawerMoving
                 || sheetMoving || toastFading || heroFading || bgFading || nightMoving || panning || sheetOpen || sheet.value > 0.001f
@@ -3369,7 +3385,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float titleBottom = meta ? metaBase - 52 * k : buttonTop - 40 * k;
         Bitmap logo = recs.logo(p);
         float titleTop;
-        if (logo != null) {
+        if (p.weather != null) {
+            titleTop = drawWeatherBlock(c, p.weather, x, titleBottom, alpha);
+        } else if (logo != null) {
             float maxW = F_LOGO_W * k, maxH = F_LOGO_H * k;
             float scale = Math.min(Math.min(maxW / logo.getWidth(), maxH / logo.getHeight()), 1.5f * k);
             float lw = logo.getWidth() * scale, lh = logo.getHeight() * scale;
@@ -3393,6 +3411,60 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (p.game != null && "in".equals(p.game.state)) labelX += drawLiveBadge(c, x, labelBase, alpha);
         text(c, label, labelX, labelBase, labelPaint, 0xC7FFFFFF, alpha);
         if (meta) text(c, p.meta, x, metaBase, metaPaint, 0xD1FFFFFF, alpha);
+    }
+
+    /**
+     * The weather card's title, as the old Yahoo Weather had it: the sky in words with its icon (in color, like the
+     * iPhone's), ↑ high ↓ low, and the temperature now, large and thin. Stacked up from `bottom`; returns its top.
+     */
+    private float drawWeatherBlock(Canvas c, HomeData.Weather wx, float x, float bottom, float alpha) {
+        int a = Math.round(255 * alpha);
+        String temp = HomeData.degrees(wx.temp);
+        wxBig.setAlpha(a);
+        c.drawText(temp, x - 8 * k, bottom, wxBig);     // the thin digits' side bearing: lined up with the text above
+        float top = bottom - 2 * Ui.halfCap(wxBig);
+        float rangeBase = top - 40 * k;
+        wxRange.setAlpha(Math.round(242 * alpha));
+        String high = "↑ " + HomeData.degrees(wx.max), low = "↓ " + HomeData.degrees(wx.min);
+        c.drawText(high, x, rangeBase, wxRange);
+        c.drawText(low, x + wxRange.measureText(high) + 36 * k, rangeBase, wxRange);
+        float condBase = rangeBase - 2 * Ui.halfCap(wxRange) - 30 * k;
+        int code = wx.dayCode.isEmpty() ? wx.code : wx.dayCode.get(0);
+        float icon = drawWeatherIcon(c, code, wx.isDay, x, condBase - Ui.halfCap(wxCond), 40 * k, alpha);
+        wxCond.setAlpha(a);
+        c.drawText(HomeData.condition(code, wx.isDay), x + icon + 16 * k, condBase, wxCond);
+        return condBase - 2 * Ui.halfCap(wxCond);
+    }
+
+    /** The sky's icon in color (a yellow sun, white clouds, blue rain), centered on `cy`; returns its width. */
+    private float drawWeatherIcon(Canvas c, int code, boolean day, float x, float cy, float size, float alpha) {
+        String kind = HeroArt.kind(code);
+        Context ctx = getContext();
+        if (kind.equals("partly")) {
+            // A sun (or moon) behind a cloud.
+            String back = day ? "sunny" : "clear_night";
+            float bw = Symbols.width(ctx, back, size * 0.8f), cw = Symbols.width(ctx, "cloud", size);
+            Symbols.draw(ctx, c, back, x + cw * 0.62f, cy - size * 0.22f, size * 0.8f, Ui.alpha(day ? 0xFFFFD60A : 0xFFF5E6A8, alpha));
+            Symbols.draw(ctx, c, "cloud", x + cw / 2, cy + size * 0.08f, size, Ui.alpha(0xFFFFFFFF, alpha));
+            return Math.max(cw, cw * 0.62f + bw / 2);
+        }
+        String name = Symbols.weather(code, day);
+        int color = kind.equals("clear") ? (day ? 0xFFFFD60A : 0xFFF5E6A8) : kind.equals("rain") ? 0xFFA9D2FF
+                : kind.equals("storm") ? 0xFFFFE27A : kind.equals("fog") ? 0xFFDDE3E8 : 0xFFFFFFFF;
+        float w = Symbols.width(ctx, name, size);
+        Symbols.draw(ctx, c, name, x + w / 2, cy, size, Ui.alpha(color, alpha));
+        return w;
+    }
+
+    /** The weather card's moving sky: on while the card is on screen (and nothing covers it), off otherwise. */
+    private void updateFx() {
+        Recs.Pick p = running && featured() ? currentPick() : null;
+        boolean show = p != null && p.weather != null && !sheetOpen && !drawerOpen && drawer.value < 0.02f;
+        if (show) {
+            HomeData.Weather wx = p.weather;
+            fx.scene(HeroArt.kind(wx.dayCode.isEmpty() ? wx.code : wx.dayCode.get(0)), wx.isDay);
+        }
+        fx.active(show);
     }
 
     /** A red "LIVE" pill on the label's line (a game on now); returns how far the label moves right. */

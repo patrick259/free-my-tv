@@ -122,106 +122,76 @@ final class HeroArt {
     // MARK: - Weather card
 
     /**
-     * Today's weather as a scene: a sky painted for the day's forecast (sun, clouds, overcast, rain, a storm, snow, fog;
-     * at night the stars), and the day's high and low, large, on the right. The hero's text says what to expect.
+     * The weather card's still sky, the way the iPhone's Weather app paints it: a gradient for the forecast and the time
+     * of day (dawn and dusk warm at the horizon, night deep blue with stars and the moon), the sun's glow on a clear
+     * day, a low ceiling of cloud when it's gray, a haze for fog. What moves (clouds, rain, snow, fog banks, lightning)
+     * is WeatherFx, over this; the temperature and the rest are the hero's text (HomeView).
      */
     static Bitmap weather(Context ctx, HomeData.Weather wx, int w, int h) {
         Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(out);
         float s = w / 1920f;
         int code = wx.dayCode.isEmpty() ? wx.code : wx.dayCode.get(0);
+        String kind = kind(code);
         boolean day = wx.isDay;
+        long now = System.currentTimeMillis();
+        boolean golden = wx.sunrise > 0 && (Math.abs(now - wx.sunrise) < 50 * 60_000L || Math.abs(now - wx.sunset) < 50 * 60_000L);
         java.util.Random rnd = new java.util.Random(code * 31L + (day ? 1 : 0));
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
-        String kind = kind(code);
 
-        // The sky.
-        int[] sky = !day ? new int[] {0xFF0A1430, 0xFF1B2D55, 0xFF2C3F6B}
-                : kind.equals("clear") ? new int[] {0xFF1565C9, 0xFF4A9BEA, 0xFFA8D8F5}
-                : kind.equals("partly") ? new int[] {0xFF2A6CB8, 0xFF6AA5DE, 0xFFC4DDF0}
-                : kind.equals("overcast") ? new int[] {0xFF56606E, 0xFF7E8896, 0xFFA3ABB5}
-                : kind.equals("fog") ? new int[] {0xFF8A949E, 0xFFAEB6BD, 0xFFCDD2D6}
-                : kind.equals("snow") ? new int[] {0xFF6D7F94, 0xFF9CADBF, 0xFFD4DEE8}
-                : kind.equals("storm") ? new int[] {0xFF14161F, 0xFF2A2C3C, 0xFF3E3A4E}
-                : new int[] {0xFF243142, 0xFF3A4A5E, 0xFF5A6A7C};     // rain
+        // Top to horizon.
+        int[] sky;
+        if (!day) {
+            sky = kind.equals("clear") || kind.equals("partly") ? new int[] {0xFF050A1C, 0xFF0E1B3D, 0xFF24365E}
+                    : new int[] {0xFF0B0F18, 0xFF1A2130, 0xFF2B3446};
+        } else if (golden && (kind.equals("clear") || kind.equals("partly"))) {
+            sky = new int[] {0xFF2B4C8C, 0xFF8F7FB0, 0xFFF6A86A};
+        } else {
+            sky = kind.equals("clear") ? new int[] {0xFF0F5FC7, 0xFF3D8FE6, 0xFF9CD0F7}
+                    : kind.equals("partly") ? new int[] {0xFF2668B6, 0xFF5E9BDA, 0xFFB6D4EE}
+                    : kind.equals("overcast") ? new int[] {0xFF5B6574, 0xFF838D9A, 0xFFA9B0B9}
+                    : kind.equals("fog") ? new int[] {0xFF8E979F, 0xFFB3BAC0, 0xFFD3D7DA}
+                    : kind.equals("snow") ? new int[] {0xFF74869A, 0xFFA2B2C3, 0xFFD6DFE8}
+                    : kind.equals("storm") ? new int[] {0xFF101219, 0xFF262838, 0xFF3C3A4C}
+                    : new int[] {0xFF263243, 0xFF3D4C60, 0xFF5D6C7E};     // rain
+        }
         paint.setShader(new LinearGradient(0, 0, 0, h, sky, new float[] {0, 0.55f, 1}, Shader.TileMode.CLAMP));
         c.drawRect(0, 0, w, h, paint);
         paint.setShader(null);
 
         float sunX = 1460 * s, sunY = 250 * s;
         if (!day) {
-            // Stars, and the moon when it's clear enough.
-            paint.setColor(0xFFFFFFFF);
-            for (int i = 0; i < 140; i++) {
-                float x = rnd.nextFloat() * w, y = rnd.nextFloat() * h * 0.7f, r = (0.8f + rnd.nextFloat() * 1.8f) * s;
-                paint.setAlpha(60 + rnd.nextInt(170));
-                c.drawCircle(x, y, r, paint);
+            if (kind.equals("clear") || kind.equals("partly")) {
+                paint.setColor(0xFFFFFFFF);
+                for (int i = 0; i < 220; i++) {
+                    float x = rnd.nextFloat() * w, y = rnd.nextFloat() * h * 0.75f, r = (0.7f + rnd.nextFloat() * 1.9f) * s;
+                    paint.setAlpha(50 + rnd.nextInt(190));
+                    c.drawCircle(x, y, r, paint);
+                }
+                paint.setAlpha(255);
+                glow(c, paint, sunX, sunY, 62 * s, 420 * s, 0xFFF3EFE2, 0x4DAFC2EE);
             }
-            paint.setAlpha(255);
-            if (kind.equals("clear") || kind.equals("partly")) glow(c, paint, sunX, sunY, 70 * s, 360 * s, 0xFFF4F1E6, 0x40B8C8F0);
         } else if (kind.equals("clear") || kind.equals("partly")) {
-            glow(c, paint, sunX, sunY, 95 * s, 720 * s, 0xFFFFFBE8, 0x80FFD27A);
+            glow(c, paint, sunX, sunY, 90 * s, 800 * s, golden ? 0xFFFFF0D0 : 0xFFFFFCEB, golden ? 0xA6FFB070 : 0x8CFFE08A);
         }
-
-        // Clouds: soft heaps, more and darker as the day gets worse.
-        int clouds = kind.equals("clear") ? 0 : kind.equals("partly") ? 4 : kind.equals("fog") ? 0 : 9;
-        int cloudColor = !day ? 0xFF3A4766 : kind.equals("partly") ? 0xFFFFFFFF : kind.equals("overcast") ? 0xFFCBD1D8
-                : kind.equals("snow") ? 0xFFE6ECF2 : kind.equals("storm") ? 0xFF2E3142 : 0xFF6B7889;
-        for (int i = 0; i < clouds; i++) {
-            float cx = (700 + rnd.nextFloat() * 1300) * s, cy = (60 + rnd.nextFloat() * (clouds > 4 ? 420 : 300)) * s;
-            cloud(c, cx, cy, (160 + rnd.nextFloat() * 160) * s, cloudColor, kind.equals("partly") ? 0.85f : 0.7f, rnd);
+        // A low ceiling of cloud on gray days (the drifting clouds are WeatherFx's).
+        if (kind.equals("overcast") || kind.equals("rain") || kind.equals("storm") || kind.equals("snow")) {
+            int ceiling = !day ? 0x99202634 : kind.equals("storm") ? 0xCC1C1E2A : kind.equals("rain") ? 0x99454F5E
+                    : kind.equals("snow") ? 0x80DDE3EA : 0x80C3C9D0;
+            paint.setShader(new LinearGradient(0, 0, 0, h * 0.45f, ceiling, ceiling & 0x00FFFFFF, Shader.TileMode.CLAMP));
+            c.drawRect(0, 0, w, h * 0.45f, paint);
+            paint.setShader(null);
         }
         if (kind.equals("fog")) {
-            Paint band = new Paint(Paint.ANTI_ALIAS_FLAG);
-            band.setMaskFilter(new android.graphics.BlurMaskFilter(60 * s, android.graphics.BlurMaskFilter.Blur.NORMAL));
-            for (int i = 0; i < 6; i++) {
-                band.setColor(0x59FFFFFF);
-                float y = (180 + i * 120 + rnd.nextFloat() * 40) * s;
-                c.drawRect(-100 * s, y, w + 100 * s, y + 70 * s, band);
-            }
+            paint.setShader(new LinearGradient(0, h * 0.2f, 0, h, 0x00FFFFFF, 0x8CFFFFFF, Shader.TileMode.CLAMP));
+            c.drawRect(0, 0, w, h, paint);
+            paint.setShader(null);
         }
-        if (kind.equals("storm")) bolt(c, 1080 * s, 70 * s, s, rnd);     // above and left of the high and low
-        if (kind.equals("rain") || kind.equals("storm")) {
-            Paint drop = new Paint(Paint.ANTI_ALIAS_FLAG);
-            drop.setStrokeWidth(2.2f * s);
-            drop.setStrokeCap(Paint.Cap.ROUND);
-            for (int i = 0; i < 260; i++) {
-                float x = (500 + rnd.nextFloat() * 1500) * s, y = (200 + rnd.nextFloat() * 900) * s, len = (30 + rnd.nextFloat() * 40) * s;
-                drop.setColor(Ui.alpha(0xFFCFE0F5, 0.18f + rnd.nextFloat() * 0.3f));
-                c.drawLine(x, y, x - len * 0.25f, y + len, drop);
-            }
-        }
-        if (kind.equals("snow")) {
-            Paint flake = new Paint(Paint.ANTI_ALIAS_FLAG);
-            flake.setMaskFilter(new android.graphics.BlurMaskFilter(2 * s, android.graphics.BlurMaskFilter.Blur.NORMAL));
-            for (int i = 0; i < 220; i++) {
-                flake.setColor(Ui.alpha(0xFFFFFFFF, 0.4f + rnd.nextFloat() * 0.5f));
-                c.drawCircle((450 + rnd.nextFloat() * 1550) * s, rnd.nextFloat() * h, (2 + rnd.nextFloat() * 5) * s, flake);
-            }
-        }
-
         // Dark on the left, under the hero's text.
-        paint.setShader(new LinearGradient(0, 0, w * 0.6f, 0, new int[] {0xE60B0B0F, 0x800B0B0F, 0x000B0B0F}, new float[] {0, 0.5f, 1},
+        paint.setShader(new LinearGradient(0, 0, w * 0.62f, 0, new int[] {0xD90B0B0F, 0x730B0B0F, 0x000B0B0F}, new float[] {0, 0.5f, 1},
                 Shader.TileMode.CLAMP));
         c.drawRect(0, 0, w, h, paint);
         paint.setShader(null);
-
-        // The day's high and low, large: warm and cool.
-        if (!Double.isNaN(wx.max) && !Double.isNaN(wx.min)) {
-            Paint label = text(Ui.semibold, 26 * s, 0xE6FFFFFF);
-            label.setLetterSpacing(0.12f);
-            label.setShadowLayer(18 * s, 0, 2 * s, 0x80000000);
-            Paint hi = text(Ui.light, 210 * s, 0xFFFFE2A8), lo = text(Ui.light, 150 * s, 0xFFB9DCFF);
-            hi.setShadowLayer(40 * s, 0, 4 * s, 0x99000000);
-            lo.setShadowLayer(40 * s, 0, 4 * s, 0x99000000);
-            String high = HomeData.degrees(wx.max), low = HomeData.degrees(wx.min);
-            float base = 690 * s, right = 1840 * s, loW = lo.measureText(low), hiW = hi.measureText(high);
-            float loX = right - loW, hiX = loX - 70 * s - hiW;
-            c.drawText(Ui.tr("HIGH"), hiX + 8 * s, base - 200 * s, label);
-            c.drawText(high, hiX, base, hi);
-            c.drawText(Ui.tr("LOW"), loX + 6 * s, base - 200 * s, label);
-            c.drawText(low, loX, base, lo);
-        }
         return out;
     }
 
@@ -289,41 +259,7 @@ final class HeroArt {
         paint.setShader(null);
     }
 
-    /** A soft heap of cloud: a few overlapping blurred puffs on a flat base. */
-    private static void cloud(Canvas c, float cx, float cy, float size, int color, float alpha, java.util.Random rnd) {
-        Paint puff = new Paint(Paint.ANTI_ALIAS_FLAG);
-        puff.setMaskFilter(new android.graphics.BlurMaskFilter(size * 0.18f, android.graphics.BlurMaskFilter.Blur.NORMAL));
-        puff.setColor(Ui.alpha(color, alpha));
-        int n = 5 + rnd.nextInt(3);
-        for (int i = 0; i < n; i++) {
-            float dx = (i - (n - 1) / 2f) * size * 0.42f, r = size * (0.35f + rnd.nextFloat() * 0.3f) * (1 - Math.abs(dx) / (size * 2.2f));
-            c.drawCircle(cx + dx, cy - r * 0.35f, r, puff);
-        }
-        c.drawRoundRect(new RectF(cx - size * 1.15f, cy - size * 0.1f, cx + size * 1.15f, cy + size * 0.32f), size * 0.2f, size * 0.2f, puff);
-    }
 
-    /** A lightning bolt with its glow. */
-    private static void bolt(Canvas c, float x, float y, float s, java.util.Random rnd) {
-        android.graphics.Path path = new android.graphics.Path();
-        path.moveTo(x, y);
-        float px = x, py = y;
-        for (int i = 0; i < 5; i++) {
-            px += (rnd.nextFloat() - 0.4f) * 60 * s;
-            py += (45 + rnd.nextFloat() * 25) * s;
-            path.lineTo(px, py);
-        }
-        Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
-        glow.setStyle(Paint.Style.STROKE);
-        glow.setStrokeJoin(Paint.Join.ROUND);
-        glow.setStrokeWidth(18 * s);
-        glow.setColor(0x66B9A8FF);
-        glow.setMaskFilter(new android.graphics.BlurMaskFilter(22 * s, android.graphics.BlurMaskFilter.Blur.NORMAL));
-        c.drawPath(path, glow);
-        glow.setMaskFilter(null);
-        glow.setStrokeWidth(4 * s);
-        glow.setColor(0xFFF6F2FF);
-        c.drawPath(path, glow);
-    }
 
     // MARK: - Shared
 
