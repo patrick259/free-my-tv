@@ -23,7 +23,7 @@ final class WeatherFx extends View implements Choreographer.FrameCallback {
     private static final long FADE_MS = 700;
 
     private String kind = "";
-    private boolean day = true, on;
+    private boolean day = true, on, windy;
     private float alpha, from;
     private long fadeAt, lastNanos;
     private final Random rnd = new Random();
@@ -47,10 +47,11 @@ final class WeatherFx extends View implements Choreographer.FrameCallback {
     }
 
     /** The sky to animate: HeroArt.kind's clear, partly, overcast, fog, rain, snow, storm; and day or night. */
-    void scene(String kind, boolean day) {
-        if (kind.equals(this.kind) && day == this.day && getWidth() > 0 && clouds.length > 0 == needsClouds(kind)) return;
+    void scene(String kind, boolean day, boolean windy) {
+        if (kind.equals(this.kind) && day == this.day && windy == this.windy && getWidth() > 0 && clouds.length > 0 == needsClouds(kind)) return;
         this.kind = kind;
         this.day = day;
+        this.windy = windy;
         build();
     }
 
@@ -104,7 +105,7 @@ final class WeatherFx extends View implements Choreographer.FrameCallback {
             cs[i] = 0.8f + rnd.nextFloat() * 0.6f;
             cx[i] = rnd.nextFloat() * (w + 600 * k) - 300 * k;
             cy[i] = kind.equals("fog") ? (250 + i * 150 + rnd.nextFloat() * 60) * k : (-40 + rnd.nextFloat() * (kind.equals("partly") ? 330 : 420)) * k;
-            cv[i] = (kind.equals("fog") ? 18 : 10 + rnd.nextFloat() * 14) * k * (rnd.nextBoolean() || kind.equals("fog") ? 1 : 0.7f);
+            cv[i] = (kind.equals("fog") ? 18 : 10 + rnd.nextFloat() * 14) * k * (rnd.nextBoolean() || kind.equals("fog") ? 1 : 0.7f) * (windy ? 3 : 1);
         }
 
         // Rain and snow.
@@ -151,7 +152,8 @@ final class WeatherFx extends View implements Choreographer.FrameCallback {
         boolean snow = kind.equals("snow");
         for (int i = 0; i < px.length; i++) {
             py[i] += pv[i] * dt;
-            px[i] += (snow ? (float) Math.sin(up / 900.0 + pp[i]) * 18 : -pv[i] * 0.22f) * k * dt;
+            // Wind: rain slants harder, snow blows sideways.
+            px[i] += (snow ? (float) Math.sin(up / 900.0 + pp[i]) * 18 * k - (windy ? 160 * k : 0) : -pv[i] * (windy ? 0.6f : 0.22f)) * dt;
             if (py[i] > h + 40 * k) {
                 py[i] = -60 * k - rnd.nextFloat() * 100 * k;
                 px[i] = rnd.nextFloat() * (w + 200 * k);
@@ -195,7 +197,8 @@ final class WeatherFx extends View implements Choreographer.FrameCallback {
             for (int i = 0; i < px.length; i++) {
                 float a = alpha * fade(px[i], w) * (0.18f + 0.32f * (pv[i] / (2200 * k)));
                 line.setColor(Ui.alpha(0xFFDCE8F7, a));
-                c.drawLine(px[i], py[i], px[i] + ps[i] * 0.22f, py[i] - ps[i], line);
+                float slant = windy ? 0.6f : 0.22f;
+                c.drawLine(px[i], py[i], px[i] + ps[i] * slant, py[i] - ps[i], line);
             }
         } else if (flake != null) {
             for (int i = 0; i < px.length; i++) {

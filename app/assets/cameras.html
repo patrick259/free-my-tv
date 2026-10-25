@@ -1,77 +1,155 @@
 <!doctype html>
-<!-- Live view of one Home Assistant camera over WebRTC (Home Assistant's camera/webrtc/offer, the way its own dashboard
-     does it). Loaded by CamerasActivity with Home Assistant's address as the base, so the websocket is same-origin;
-     the activity calls play(token, entity) and stop(), and hears back through Cam.state(...). -->
+<!-- The TV decodes one camera stream at a time (its hardware decoder: a second or third stream freezes on its first
+     frame), so one camera plays live and the others show a still: the last frame seen live, else Home Assistant's
+     latest picture.
+     Live views of Home Assistant cameras over WebRTC (Home Assistant's camera/webrtc/offer, the way its own dashboard
+     does it), one <video> per camera, placed where CamerasActivity says (fractions of the screen): the grid, or one
+     camera full screen. Loaded with Home Assistant's address as the base, so the websockets are same-origin. The
+     activity calls show(token, tiles) and stop(); a camera already playing keeps its stream when it only moves (the
+     grid → full screen is instant). It hears back through Cam.state(entity, "live" | "error:<why>"). -->
 <html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
-  video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+  video { position: absolute; object-fit: cover; background: transparent; }
+  video.full { object-fit: contain; background: #000; }
+  canvas.still { position: absolute; object-fit: cover; background: #111; }
 </style>
 </head>
 <body>
-<video id="v" autoplay playsinline></video>
 <script>
-let ws = null, pc = null, run = 0;
+const streams = {};     // entity -> {ws, pc, video, run}
+const stills = {};      // entity -> canvas with its latest picture
+let token = null, runs = 0;
 
-function tell(s) { try { Cam.state(s); } catch (e) {} }
+function tell(entity, s) { try { Cam.state(entity, s); } catch (e) {} }
 
-function stop() {
-  run++;
-  if (pc) { try { pc.close(); } catch (e) {} pc = null; }
-  if (ws) { try { ws.close(); } catch (e) {} ws = null; }
-  document.getElementById('v').srcObject = null;
+function end(entity) {
+  const s = streams[entity];
+  if (!s) return;
+  keep(entity, s.video);
+  s.run = -1;
+  if (s.pc) { try { s.pc.close(); } catch (e) {} }
+  if (s.ws) { try { s.ws.close(); } catch (e) {} }
+  s.video.remove();
+  delete streams[entity];
 }
 
-function play(token, entity) {
-  stop();
-  const mine = ++run;
+function stop() { Object.keys(streams).forEach(end); }
+
+/** The last frame of a stream, kept as the camera's still. */
+function keep(entity, v) {
+  if (!v || !v.videoWidth) return;
+  const c = canvas(entity);
+  c.width = v.videoWidth; c.height = v.videoHeight;
+  try { c.getContext('2d').drawImage(v, 0, 0); } catch (e) {}
+}
+
+function canvas(entity) {
+  let c = stills[entity];
+  if (!c) {
+    c = document.createElement('canvas');
+    c.className = 'still';
+    c.style.display = 'none';
+    document.body.insertBefore(c, document.body.firstChild);
+    stills[entity] = c;
+  }
+  return c;
+}
+
+/** Home Assistant's latest picture, for a camera not seen live yet. */
+function snapshot(entity) {
+  const c = canvas(entity);
+  if (c.width > 300 || c.loading) return;
+  c.loading = true;
+  fetch('/api/camera_proxy/' + entity, { headers: { Authorization: 'Bearer ' + token } })
+    .then(r => r.ok ? r.blob() : null).then(b => {
+      if (!b) return;
+      const img = new Image();
+      img.onload = () => { if (c.width > 300) return; c.width = img.width; c.height = img.height; c.getContext('2d').drawImage(img, 0, 0); };
+      img.src = URL.createObjectURL(b);
+    }).catch(() => {}).finally(() => { c.loading = false; });
+}
+
+function place(el, x) {
+  el.style.left = (x.l * 100) + '%'; el.style.top = (x.t * 100) + '%';
+  el.style.width = (x.w * 100) + '%'; el.style.height = (x.h * 100) + '%';
+}
+
+/** tiles: [{entity, l, t, w, h, full, live}] in fractions of the screen; only the `live` one streams. */
+function show(t, tiles) {
+  token = t;
+  const live = new Set(tiles.filter(x => x.live).map(x => x.entity));
+  Object.keys(streams).forEach(e => { if (!live.has(e)) end(e); });
+  Object.keys(stills).forEach(e => { stills[e].style.display = 'none'; });
+  tiles.forEach(x => {
+    if (!x.live) {
+      const c = canvas(x.entity);
+      place(c, x);
+      c.style.display = 'block';
+      snapshot(x.entity);
+      return;
+    }
+    let s = streams[x.entity];
+    if (!s) s = start(x.entity);
+    // Its still under it until the stream's first frame.
+    const c = canvas(x.entity);
+    place(c, x);
+    c.style.display = 'block';
+    snapshot(x.entity);
+    const v = s.video;
+    place(v, x);
+    v.className = x.full ? 'full' : '';
+    if (s.playing) tell(x.entity, 'live');
+  });
+}
+
+function start(entity) {
+  const v = document.createElement('video');
+  v.autoplay = true; v.playsInline = true; v.muted = false;
+  document.body.appendChild(v);
+  const s = { video: v, run: ++runs, playing: false };
+  streams[entity] = s;
+  const mine = s.run;
   let id = 0, session = null, early = [];
   const waits = {};
-  const url = location.origin.replace(/^http/, 'ws') + '/api/websocket';
-  ws = new WebSocket(url);
-  const send = (msg, cb) => { msg.id = ++id; if (cb) waits[msg.id] = cb; ws.send(JSON.stringify(msg)); return msg.id; };
-  const fail = (why) => { if (mine === run) { tell('error:' + why); stop(); } };
+  const alive = () => streams[entity] === s && s.run === mine;
+  const ws = new WebSocket(location.origin.replace(/^http/, 'ws') + '/api/websocket');
+  s.ws = ws;
+  const send = (msg, cb) => { msg.id = ++id; if (cb) waits[msg.id] = cb; ws.send(JSON.stringify(msg)); };
+  const fail = (why) => { if (alive()) { tell(entity, 'error:' + why); end(entity); } };
 
   ws.onerror = () => fail('socket');
-  ws.onclose = () => { if (mine === run && !pc) fail('closed'); };
-  ws.onmessage = async (m) => {
-    if (mine !== run) return;
+  ws.onclose = () => { if (alive() && !s.pc) fail('closed'); };
+  ws.onmessage = (m) => {
+    if (!alive()) return;
     const d = JSON.parse(m.data);
     if (d.type === 'auth_required') { ws.send(JSON.stringify({ type: 'auth', access_token: token })); return; }
     if (d.type === 'auth_invalid') { fail('auth'); return; }
-    if (d.type === 'auth_ok') { start(); return; }
+    if (d.type === 'auth_ok') {
+      send({ type: 'camera/webrtc/get_client_config', entity_id: entity }, (r) => {
+        const res = r.success && r.result ? r.result : {};
+        offer(res.configuration || {}, res.dataChannel);
+      });
+      return;
+    }
     const cb = waits[d.id];
     if (cb) cb(d);
   };
 
-  function start() {
-    send({ type: 'camera/webrtc/get_client_config', entity_id: entity }, (r) => {
-      const config = r.success && r.result ? r.result.configuration || {} : {};
-      const channel = r.success && r.result ? r.result.dataChannel : null;
-      offer(config, channel);
-    });
-  }
-
   async function offer(config, channel) {
-    pc = new RTCPeerConnection(config);
+    const pc = new RTCPeerConnection(config);
+    s.pc = pc;
     pc.addTransceiver('audio', { direction: 'recvonly' });
     pc.addTransceiver('video', { direction: 'recvonly' });
     if (channel) pc.createDataChannel(channel);
     const stream = new MediaStream();
-    pc.ontrack = (e) => {
-      stream.addTrack(e.track);
-      const v = document.getElementById('v');
-      if (v.srcObject !== stream) v.srcObject = stream;
-    };
-    pc.onconnectionstatechange = () => {
-      if (mine !== run) return;
-      if (pc.connectionState === 'failed') fail('connection');
-    };
+    pc.ontrack = (e) => { stream.addTrack(e.track); if (v.srcObject !== stream) v.srcObject = stream; };
+    pc.onconnectionstatechange = () => { if (alive() && pc.connectionState === 'failed') fail('connection'); };
     pc.onicecandidate = (e) => {
-      if (!e.candidate || mine !== run) return;
+      if (!e.candidate || !alive()) return;
       const c = { candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex };
       if (session) send({ type: 'camera/webrtc/candidate', entity_id: entity, session_id: session, candidate: c });
       else early.push(c);
@@ -79,7 +157,7 @@ function play(token, entity) {
     const o = await pc.createOffer();
     await pc.setLocalDescription(o);
     send({ type: 'camera/webrtc/offer', entity_id: entity, offer: o.sdp }, async (d) => {
-      if (mine !== run) return;
+      if (!alive()) return;
       if (d.type === 'result') { if (!d.success) fail('offer:' + (d.error && d.error.message || '')); return; }
       const ev = d.event || {};
       if (ev.type === 'session') {
@@ -96,8 +174,13 @@ function play(token, entity) {
     });
   }
 
-  const v = document.getElementById('v');
-  v.onplaying = () => { if (mine === run) tell('live'); };
+  v.onplaying = () => { if (alive()) { s.playing = true; tell(entity, 'live'); } };
+  return s;
+}
+
+/** Only the full-screen camera's sound (the grid is silent). */
+function sound(entity) {
+  Object.keys(streams).forEach(e => { streams[e].video.muted = e !== entity; });
 }
 </script>
 </body>

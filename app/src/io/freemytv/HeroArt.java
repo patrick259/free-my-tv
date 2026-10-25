@@ -41,7 +41,7 @@ final class HeroArt {
         paint.setShader(null);
 
         List<Sports.Game> games = g.slate;
-        int cols = 3, rows = Math.max(1, (games.size() + cols - 1) / cols);
+        int cols = games.size() > 12 ? 4 : 3, rows = Math.max(1, (games.size() + cols - 1) / cols);
         float left = 860 * s, right = 1840 * s, top = 130 * s, bottom = 760 * s, gap = 14 * s;
         float tw = (right - left - (cols - 1) * gap) / cols;
         float th = Math.min(124 * s, (bottom - top - (rows - 1) * gap) / rows);
@@ -54,31 +54,35 @@ final class HeroArt {
         Paint tile = new Paint(Paint.ANTI_ALIAS_FLAG), edge = new Paint(Paint.ANTI_ALIAS_FLAG);
         edge.setStyle(Paint.Style.STROKE);
         edge.setStrokeWidth(2 * s);
-        // Each tile's corner worked out ahead, in whole pixels: computed inside the loop, Fire OS 7's compiler (ART, once
-        // it had compiled this) handed back garbage for the columns after the first row.
-        int[] xs = new int[cols], ys = new int[rows];
-        for (int col = 0; col < cols; col++) xs[col] = Math.round(left + col * (tw + gap));
-        for (int row = 0; row < rows; row++) ys[row] = Math.round(top + row * (th + gap));
-        RectF r = new RectF();
+        // Each tile worked out ahead, in whole pixels: computed inside the drawing loop, Fire OS 7's compiler (ART, once
+        // it had compiled the loop) handed back garbage for the tiles after the first dozen or so.
+        // Every tile's whole rectangle too: with 14 games the width came back wrong from the 12th on.
+        RectF[] rects = new RectF[games.size()];
+        for (int i = 0; i < rects.length; i++) {
+            int x0 = Math.round(left + (i % cols) * (tw + gap)), y0 = Math.round(top + (i / cols) * (th + gap));
+            rects[i] = new RectF(x0, y0, x0 + Math.round(tw), y0 + Math.round(th));
+        }
         for (int i = 0; i < games.size(); i++) {
             Sports.Game m = games.get(i);
-            float x = xs[i % cols], y = ys[i / cols];
-            r.set(x, y, x + tw, y + th);
+            RectF r = rects[i];
+            float x = r.left, y = r.top;
             boolean live = "in".equals(m.state), done = "post".equals(m.state);
             tile.setColor(live ? 0x40FF453A : 0x2E000000);
             c.drawRoundRect(r, 16 * s, 16 * s, tile);
             edge.setColor(live ? 0xCCFF453A : m.favorite ? 0x99FFD60A : 0x24FFFFFF);
             c.drawRoundRect(r, 16 * s, 16 * s, edge);
 
-            float pad = 16 * s, logo = th * 0.26f, row1 = y + th * 0.27f, row2 = y + th * 0.58f;
+            float rh = r.height(), pad = 16 * s, logo = rh * 0.26f, row1 = y + rh * 0.27f, row2 = y + rh * 0.58f;
             boolean awayWon = done && m.awayScore > m.homeScore, homeWon = done && m.homeScore > m.awayScore;
             team(c, paint, name, rank, score, m.awayLogo, m.awayAbbr, m.awayRank, m.awayScore, x + pad, r.right - pad, row1, logo,
                     !"pre".equals(m.state), done && !awayWon);
             team(c, paint, name, rank, score, m.homeLogo, m.homeAbbr, m.homeRank, m.homeScore, x + pad, r.right - pad, row2, logo,
                     !"pre".equals(m.state), done && !homeWon);
-            String when = live ? m.detail : done ? (m.detail.isEmpty() ? Ui.tr("Final") : m.detail) : clock(m.start);
+            // Another day's game (Thursday's, Monday night's): its day first.
+            String day = sameDay(m.start) ? "" : new java.text.SimpleDateFormat("EEE", Ui.locale()).format(new java.util.Date(m.start)) + " · ";
+            String when = live ? m.detail : done ? day + (m.detail.isEmpty() ? Ui.tr("Final") : m.detail) : day + clock(m.start);
             status.setColor(live ? 0xFFFF6961 : 0xB3FFFFFF);
-            c.drawText(when, x + pad, y + th * 0.89f, status);
+            c.drawText(when, x + pad, y + rh * 0.89f, status);
         }
         return out;
     }
@@ -131,7 +135,7 @@ final class HeroArt {
         Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(out);
         float s = w / 1920f;
-        int code = wx.dayCode.isEmpty() ? wx.code : wx.dayCode.get(0);
+        int code = wx.code;     // the sky now: morning fog, then sun (the forecast is read again every half hour)
         String kind = kind(code);
         boolean day = wx.isDay;
         long now = System.currentTimeMillis();
@@ -242,6 +246,7 @@ final class HeroArt {
      * a calm word for the sky. Temperatures in Celsius (the forecast's own unit).
      */
     static String expect(Context ctx, HomeData.Weather wx) {
+        java.text.DateFormat clock = android.text.format.DateFormat.getTimeFormat(ctx);
         java.util.List<String> parts = new java.util.ArrayList<>();
         boolean wetNow = wet(wx.code);
         String time = null, kindLater = null;
@@ -249,7 +254,7 @@ final class HeroArt {
             int k = wx.laterCode.get(i);
             if (!wet(k)) continue;
             if (time == null) {
-                time = Ui.clock(wx.laterAt.get(i));
+                time = clock.format(new java.util.Date(wx.laterAt.get(i)));
                 kindLater = k >= 95 ? "storm" : (k >= 71 && k <= 77 || k == 85 || k == 86) ? "snow" : "rain";
             }
             if (k >= 95) { kindLater = "storm"; break; }
@@ -259,6 +264,22 @@ final class HeroArt {
         else if ("snow".equals(kindLater)) parts.add(Ui.trf("Snow likely from {time}", "time", time));
         else if (kindLater != null) parts.add(Ui.trf("Rain likely from {time}", "time", time));
         else if (!wx.dayRain.isEmpty() && wx.dayRain.get(0) >= 40) parts.add(Ui.trf("{p}% chance of rain", "p", wx.dayRain.get(0)));
+        // The sky changing later today (fog burning off, clouds coming in), when it isn't rain already said.
+        if (kindLater == null && !wetNow) {
+            String now = group(wx.code);
+            for (int i = 0; i < wx.laterCode.size(); i++) {
+                String then = group(wx.laterCode.get(i));
+                if (then.equals(now) || then.equals("wet")) continue;
+                String at = clock.format(new java.util.Date(wx.laterAt.get(i)));
+                boolean night = wx.sunset > 0 && wx.laterAt.get(i) > wx.sunset;
+                parts.add(then.equals("sun") ? (now.equals("fog") ? Ui.trf("Fog lifting by {time}", "time", at)
+                        : night ? Ui.trf("Clearing by {time}", "time", at) : Ui.trf("Sun from {time}", "time", at))
+                        : then.equals("fog") ? Ui.trf("Fog from {time}", "time", at) : Ui.trf("Clouding over from {time}", "time", at));
+                break;
+            }
+        }
+        double gust = Double.isNaN(wx.dayGust) ? wx.gusts : Math.max(wx.dayGust, Double.isNaN(wx.gusts) ? 0 : wx.gusts);
+        if (!Double.isNaN(gust) && gust >= WINDY_KMH) parts.add(Ui.trf("Windy: gusts to {speed}", "speed", HomeData.speed(gust)));
         double max = wx.max, min = wx.min;
         if (!Double.isNaN(max) && max >= 38) parts.add(Ui.trf("Heat warning: up to {t}", "t", HomeData.degrees(max)));
         else if (!Double.isNaN(max) && max >= 33) parts.add(Ui.trf("Hot one: up to {t}", "t", HomeData.degrees(max)));
@@ -268,12 +289,25 @@ final class HeroArt {
             parts.add(Ui.tr("Cool morning, warm afternoon"));
         }
         if (parts.isEmpty()) {
-            int code = wx.dayCode.isEmpty() ? wx.code : wx.dayCode.get(0);
-            String k = kind(code);
+            String k = kind(wx.code);
             parts.add(k.equals("clear") ? Ui.tr("Clear skies all day") : k.equals("partly") ? Ui.tr("Some clouds, staying dry")
                     : k.equals("fog") ? Ui.tr("Foggy, take it slow on the roads") : Ui.tr("Gray skies, staying dry"));
         }
         return android.text.TextUtils.join("  ·  ", parts);
+    }
+
+    /** Gusts from this (km/h, about 28 mph) make a windy day: worth saying, and the rain and snow blow sideways. */
+    static final double WINDY_KMH = 45;
+
+    /** A windy day (today's strongest gust, or now's)? */
+    static boolean windy(HomeData.Weather wx) {
+        return (!Double.isNaN(wx.dayGust) && wx.dayGust >= WINDY_KMH) || (!Double.isNaN(wx.gusts) && wx.gusts >= WINDY_KMH);
+    }
+
+    /** The sky in broad strokes, for "it changes later": sun, clouds, fog, or wet. */
+    private static String group(int code) {
+        String k = kind(code);
+        return k.equals("clear") || k.equals("partly") ? "sun" : k.equals("overcast") ? "clouds" : k.equals("fog") ? "fog" : "wet";
     }
 
     private static boolean wet(int code) {
@@ -300,6 +334,12 @@ final class HeroArt {
         p.setTextSize(size);
         p.setColor(color);
         return p;
+    }
+
+    private static boolean sameDay(long at) {
+        java.util.Calendar a = java.util.Calendar.getInstance(), b = java.util.Calendar.getInstance();
+        a.setTimeInMillis(at);
+        return a.get(java.util.Calendar.YEAR) == b.get(java.util.Calendar.YEAR) && a.get(java.util.Calendar.DAY_OF_YEAR) == b.get(java.util.Calendar.DAY_OF_YEAR);
     }
 
     private static String clock(long at) {

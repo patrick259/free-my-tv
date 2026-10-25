@@ -43,8 +43,8 @@ final class HomeData {
     private static String quote() {
         return CURRENCY.equals("USD") || inDollars ? "USDT" : CURRENCY;
     }
-    private static final String WEATHER_QUERY = "&current=temperature_2m,weather_code,is_day"
-            + "&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset,weather_code,precipitation_probability_max"
+    private static final String WEATHER_QUERY = "&current=temperature_2m,weather_code,is_day,wind_speed_10m,wind_gusts_10m"
+            + "&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset,weather_code,precipitation_probability_max,wind_gusts_10m_max"
             + "&hourly=temperature_2m,weather_code,is_day&timezone=auto&forecast_days=6";
 
     private static String weatherPlace() {
@@ -122,6 +122,8 @@ final class HomeData {
 
     static final class Weather {
         double temp = Double.NaN, max = Double.NaN, min = Double.NaN;
+        // Wind in km/h (Open-Meteo's unit): now, its gusts now, and today's strongest gust.
+        double wind = Double.NaN, gusts = Double.NaN, dayGust = Double.NaN;
         int code = -1;
         boolean isDay = true;
         long sunrise, sunset;   // today's, in epoch ms
@@ -270,10 +272,14 @@ final class HomeData {
         JSONObject current = o.getJSONObject("current");
         w.temp = current.getDouble("temperature_2m");
         w.code = current.getInt("weather_code");
+        w.wind = current.optDouble("wind_speed_10m", Double.NaN);
+        w.gusts = current.optDouble("wind_gusts_10m", Double.NaN);
         w.isDay = current.optInt("is_day", 1) == 1;
         JSONObject daily = o.getJSONObject("daily");
         w.max = daily.getJSONArray("temperature_2m_max").getDouble(0);
         w.min = daily.getJSONArray("temperature_2m_min").getDouble(0);
+        JSONArray gust = daily.optJSONArray("wind_gusts_10m_max");
+        if (gust != null) w.dayGust = gust.optDouble(0, Double.NaN);
         w.sunrise = localTime(daily.getJSONArray("sunrise").getString(0), zone);
         w.sunset = localTime(daily.getJSONArray("sunset").getString(0), zone);
         JSONArray dates = daily.optJSONArray("time"), codes0 = daily.optJSONArray("weather_code"),
@@ -470,6 +476,12 @@ final class HomeData {
     /** "Sun", "Mon"…: a day of the forecast. */
     static String weekday(long at) {
         return new java.text.SimpleDateFormat("EEE", Ui.locale()).format(new java.util.Date(at));
+    }
+
+    /** A wind speed (km/h) in the unit the temperatures use: "28 mph" or "45 km/h". */
+    static String speed(double kmh) {
+        if (Double.isNaN(kmh)) return "—";
+        return fahrenheit() ? Math.round(kmh / 1.609) + " mph" : Math.round(kmh) + " km/h";
     }
 
     static String degrees(double v) {

@@ -175,8 +175,8 @@ final class Sports {
         if (!Config.SHOW_SPORTS) return new ArrayList<>();
         long t = System.currentTimeMillis();
         List<Recs.Pick> out = new ArrayList<>();
-        // A scoreboard card stays all its day, the finals too.
-        for (Recs.Pick p : boards) if (sameDay(p.game.start, t)) out.add(p);
+        // A scoreboard card stays all its day, the finals too (it's only made on its days).
+        out.addAll(boards);
         for (Recs.Pick p : picks) {
             Game g = p.game;
             boolean live = "in".equals(g.state) || (g.start <= t && t - g.start < MAX_LIVE && !"post".equals(g.state));
@@ -215,11 +215,12 @@ final class Sports {
                     JSONObject college = get("football/college-football/scoreboard?dates=" + d + "&groups=80");
                     teamGames(list, college, Ui.tr("COLLEGE FOOTBALL"), true, MAX_COLLEGE);
                     teamGames(list, get("hockey/nhl/scoreboard?dates=" + d), "NHL", false, MAX_NFL);
-                    if (d.equals(today) && weekday == Calendar.SUNDAY) board(cards, nfl, "NFL", "NFL", false, d);
                     if (d.equals(today) && weekday == Calendar.SATURDAY) {
                         board(cards, college, Ui.tr("COLLEGE FOOTBALL"), "College Football", true, d);
                     }
                 }
+                // Sundays and Mondays: the NFL's whole week (Thursday's final and Monday night too), from its weekly board.
+                if (weekday == Calendar.SUNDAY || weekday == Calendar.MONDAY) board(cards, get("football/nfl/scoreboard"), "NFL", "NFL", false, today);
                 f1(list, get("racing/f1/scoreboard"));
                 picks = list;
                 boards = cards;
@@ -403,8 +404,8 @@ final class Sports {
 
     /** Above your teams' games and below Monday Night Football: a scoreboard card is the day's whole slate. */
     static final int BOARD = 2800;
-    /** The most games a scoreboard card holds (three columns of five); the best-ranked ones when there are more. */
-    static final int BOARD_MAX = 15;
+    /** The most games a scoreboard card holds (four columns of four); the best-ranked ones when there are more. */
+    static final int BOARD_MAX = 16;
 
     /**
      * The day's scoreboard card: every game (`ranked`: those with a ranked team), each with its logos, short names, and
@@ -471,7 +472,7 @@ final class Sports {
         p.detailed = true;
         p.button = Ui.tr("All Scores");
         JSONObject week = board.optJSONObject("week");
-        String weekday = new SimpleDateFormat("EEEE", Ui.locale()).format(new java.util.Date(first));
+        String weekday = new SimpleDateFormat("EEEE", Ui.locale()).format(new java.util.Date());
         p.label = (league + " · " + weekday).toUpperCase(Ui.locale());
         p.title = week != null && week.optInt("number") > 0
                 ? Ui.trf("Week {n}", "n", week.optInt("number")) + (ranked ? " · " + Ui.tr("Ranked") : "")

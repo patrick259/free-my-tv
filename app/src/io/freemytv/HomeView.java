@@ -3137,8 +3137,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         p.pkg = getContext().getPackageName();
         p.button = Ui.tr("Forecast");
         p.detailed = true;
-        // The day, not the hour: its sky in words, and what to expect (HeroArt draws the scene and the high and low).
-        int code = wx.dayCode.isEmpty() ? wx.code : wx.dayCode.get(0);
+        // The sky now (it changes through the day: the forecast is read every half hour), the day's high and low, and
+        // what to expect later (HeroArt draws the photo, WeatherFx what moves).
+        int code = wx.code;
         String city = Config.CITY.isEmpty() ? "" : " · " + Config.CITY;
         p.label = (Ui.tr("Today") + city).toUpperCase(Ui.locale());
         p.title = HomeData.condition(code, true);
@@ -3430,7 +3431,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         c.drawText(high, x, rangeBase, wxRange);
         c.drawText(low, x + wxRange.measureText(high) + 36 * k, rangeBase, wxRange);
         float condBase = rangeBase - 2 * Ui.halfCap(wxRange) - 30 * k;
-        int code = wx.dayCode.isEmpty() ? wx.code : wx.dayCode.get(0);
+        int code = wx.code;
         float icon = drawWeatherIcon(c, code, wx.isDay, x, condBase - Ui.halfCap(wxCond), 40 * k, alpha);
         wxCond.setAlpha(a);
         c.drawText(HomeData.condition(code, wx.isDay), x + icon + 16 * k, condBase, wxCond);
@@ -3463,7 +3464,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean show = p != null && p.weather != null && !sheetOpen && !drawerOpen && drawer.value < 0.02f;
         if (show) {
             HomeData.Weather wx = p.weather;
-            fx.scene(HeroArt.kind(wx.dayCode.isEmpty() ? wx.code : wx.dayCode.get(0)), wx.isDay);
+            fx.scene(HeroArt.kind(wx.code), wx.isDay, HeroArt.windy(wx));
         }
         fx.active(show);
     }
