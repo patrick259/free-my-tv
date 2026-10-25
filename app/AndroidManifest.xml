@@ -69,7 +69,8 @@
         android:icon="@drawable/icon"
         android:banner="@drawable/banner"
         android:allowBackup="false"
-        android:usesCleartextTraffic="false">
+        android:usesCleartextTraffic="false"
+        android:networkSecurityConfig="@xml/network_security">
 
         <!-- The app's icon opens the settings (switch between Free My TV and the original home screen). -->
         <activity
@@ -141,6 +142,16 @@
         <activity
             android:name=".GameActivity"
             android:exported="false"
+            android:excludeFromRecents="true"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density|fontScale|locale|layoutDirection"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
+
+        <!-- Cameras: live view of the Home Assistant cameras (ha_cameras), one at a time. -->
+        <activity
+            android:name=".CamerasActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
             android:excludeFromRecents="true"
             android:screenOrientation="landscape"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density|fontScale|locale|layoutDirection"

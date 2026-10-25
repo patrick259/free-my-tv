@@ -62,6 +62,8 @@ final class HomeApps {
     static final int APPSTORE = 8;
     /** The Scores page (ScoresActivity). */
     static final int SCORES = 9;
+    /** The Home Assistant cameras (CamerasActivity), when ha_url is set. */
+    static final int CAMERAS = 10;
     static final String VENEZIA = "com.amazon.venezia";
     /** Image size of each card (16:9; on screen it shows up to ~330 px wide). */
     static final int TILE_W = 384, TILE_H = 216;
@@ -233,8 +235,12 @@ final class HomeApps {
 
     // MARK: - Top buttons (the round ones at the top right)
 
-    static final String TOP_LIVE = "live", TOP_INPUTS = "inputs", TOP_SETTINGS = "settings", TOP_SCORES = "scores";
-    static final List<String> TOP_DEFAULT = Collections.unmodifiableList(java.util.Arrays.asList(TOP_SCORES, TOP_LIVE, TOP_INPUTS, TOP_SETTINGS));
+    static final String TOP_LIVE = "live", TOP_INPUTS = "inputs", TOP_SETTINGS = "settings", TOP_SCORES = "scores", TOP_CAMERAS = "cameras";
+    /** Cameras only with Home Assistant set up (config.properties). */
+    static final boolean CAMERAS_ON = !Config.HA_URL.isEmpty() && !Config.HA_CAMERAS.isEmpty();
+    static final List<String> TOP_DEFAULT = Collections.unmodifiableList(CAMERAS_ON
+            ? java.util.Arrays.asList(TOP_SCORES, TOP_CAMERAS, TOP_LIVE, TOP_INPUTS, TOP_SETTINGS)
+            : java.util.Arrays.asList(TOP_SCORES, TOP_LIVE, TOP_INPUTS, TOP_SETTINGS));
     static final int MAX_TOP = TOP_DEFAULT.size();
 
     /** The keys of the top buttons, in order (Settings > Top Buttons; by default Live TV, HDMI Inputs, Settings). */
@@ -246,6 +252,14 @@ final class HomeApps {
             Prefs.setScoresOffered();
             if (!saved.contains(TOP_SCORES)) {
                 saved.add(0, TOP_SCORES);
+                Prefs.setTopButtons(saved);
+            }
+        }
+        // Cameras the same way, once Home Assistant is set up: right after Scores.
+        if (CAMERAS_ON && !Prefs.camerasOffered()) {
+            Prefs.setCamerasOffered();
+            if (!saved.contains(TOP_CAMERAS)) {
+                saved.add(saved.contains(TOP_SCORES) ? saved.indexOf(TOP_SCORES) + 1 : 0, TOP_CAMERAS);
                 Prefs.setTopButtons(saved);
             }
         }
@@ -266,6 +280,7 @@ final class HomeApps {
             case TOP_LIVE: return action(LIVE_TV, TOP_LIVE, Ui.tr("light|Live TV"), "live_tv");
             case TOP_INPUTS: return action(INPUTS, TOP_INPUTS, Ui.tr("HDMI Inputs"), "hdmi");
             case TOP_SCORES: return action(SCORES, TOP_SCORES, Ui.tr("Scores"), "scoreboard");
+            case TOP_CAMERAS: return action(CAMERAS, TOP_CAMERAS, Ui.tr("Cameras"), "videocam");
             default: return action(SETTINGS, TOP_SETTINGS, Ui.tr("light|Settings"), "settings");
         }
     }
@@ -312,6 +327,7 @@ final class HomeApps {
         List<Item> items = new ArrayList<>();
         items.add(shortcut(ALL_APPS, "all", Ui.tr("All Apps"), "apps"));
         items.add(shortcut(SCORES, "scores", Ui.tr("Scores"), "scoreboard"));
+        if (CAMERAS_ON) items.add(shortcut(CAMERAS, "cameras", Ui.tr("Cameras"), "videocam"));
         items.add(shortcut(SETTINGS, "settings", Ui.tr("Home Settings"), "settings"));
         items.add(shortcut(ANDROID_SETTINGS, "tv-settings", Ui.tr("TV Settings"), "tv_settings"));
         // HY300 projectors (Hotack, Allwinner H713): keystone and focus live in the maker's settings app, and the
@@ -525,6 +541,9 @@ final class HomeApps {
                 break;
             case SCORES:
                 intent = new Intent(a, ScoresActivity.class);
+                break;
+            case CAMERAS:
+                intent = new Intent(a, CamerasActivity.class);
                 break;
             case APPSTORE:
                 // The store's own home (its links and launcher entry go through Amazon's home screen instead).

@@ -1,0 +1,104 @@
+<!doctype html>
+<!-- Live view of one Home Assistant camera over WebRTC (Home Assistant's camera/webrtc/offer, the way its own dashboard
+     does it). Loaded by CamerasActivity with Home Assistant's address as the base, so the websocket is same-origin;
+     the activity calls play(token, entity) and stop(), and hears back through Cam.state(...). -->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+</style>
+</head>
+<body>
+<video id="v" autoplay playsinline></video>
+<script>
+let ws = null, pc = null, run = 0;
+
+function tell(s) { try { Cam.state(s); } catch (e) {} }
+
+function stop() {
+  run++;
+  if (pc) { try { pc.close(); } catch (e) {} pc = null; }
+  if (ws) { try { ws.close(); } catch (e) {} ws = null; }
+  document.getElementById('v').srcObject = null;
+}
+
+function play(token, entity) {
+  stop();
+  const mine = ++run;
+  let id = 0, session = null, early = [];
+  const waits = {};
+  const url = location.origin.replace(/^http/, 'ws') + '/api/websocket';
+  ws = new WebSocket(url);
+  const send = (msg, cb) => { msg.id = ++id; if (cb) waits[msg.id] = cb; ws.send(JSON.stringify(msg)); return msg.id; };
+  const fail = (why) => { if (mine === run) { tell('error:' + why); stop(); } };
+
+  ws.onerror = () => fail('socket');
+  ws.onclose = () => { if (mine === run && !pc) fail('closed'); };
+  ws.onmessage = async (m) => {
+    if (mine !== run) return;
+    const d = JSON.parse(m.data);
+    if (d.type === 'auth_required') { ws.send(JSON.stringify({ type: 'auth', access_token: token })); return; }
+    if (d.type === 'auth_invalid') { fail('auth'); return; }
+    if (d.type === 'auth_ok') { start(); return; }
+    const cb = waits[d.id];
+    if (cb) cb(d);
+  };
+
+  function start() {
+    send({ type: 'camera/webrtc/get_client_config', entity_id: entity }, (r) => {
+      const config = r.success && r.result ? r.result.configuration || {} : {};
+      const channel = r.success && r.result ? r.result.dataChannel : null;
+      offer(config, channel);
+    });
+  }
+
+  async function offer(config, channel) {
+    pc = new RTCPeerConnection(config);
+    pc.addTransceiver('audio', { direction: 'recvonly' });
+    pc.addTransceiver('video', { direction: 'recvonly' });
+    if (channel) pc.createDataChannel(channel);
+    const stream = new MediaStream();
+    pc.ontrack = (e) => {
+      stream.addTrack(e.track);
+      const v = document.getElementById('v');
+      if (v.srcObject !== stream) v.srcObject = stream;
+    };
+    pc.onconnectionstatechange = () => {
+      if (mine !== run) return;
+      if (pc.connectionState === 'failed') fail('connection');
+    };
+    pc.onicecandidate = (e) => {
+      if (!e.candidate || mine !== run) return;
+      const c = { candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex };
+      if (session) send({ type: 'camera/webrtc/candidate', entity_id: entity, session_id: session, candidate: c });
+      else early.push(c);
+    };
+    const o = await pc.createOffer();
+    await pc.setLocalDescription(o);
+    send({ type: 'camera/webrtc/offer', entity_id: entity, offer: o.sdp }, async (d) => {
+      if (mine !== run) return;
+      if (d.type === 'result') { if (!d.success) fail('offer:' + (d.error && d.error.message || '')); return; }
+      const ev = d.event || {};
+      if (ev.type === 'session') {
+        session = ev.session_id;
+        early.forEach((c) => send({ type: 'camera/webrtc/candidate', entity_id: entity, session_id: session, candidate: c }));
+        early = [];
+      } else if (ev.type === 'answer') {
+        await pc.setRemoteDescription({ type: 'answer', sdp: ev.answer });
+      } else if (ev.type === 'candidate') {
+        try { await pc.addIceCandidate(ev.candidate); } catch (e) {}
+      } else if (ev.type === 'error') {
+        fail('camera:' + (ev.message || ev.code || ''));
+      }
+    });
+  }
+
+  const v = document.getElementById('v');
+  v.onplaying = () => { if (mine === run) tell('live'); };
+}
+</script>
+</body>
+</html>

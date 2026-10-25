@@ -35,4 +35,5 @@ Open items for the Insignia Fire TV build (branch `wip/fire-home-redirect`). New
 ## Housekeeping
 - [ ] Merge `wip/fire-home-redirect` into `main` on the fork and tag a version.
 - [ ] Consider moving the project out of Dropbox (it makes "conflicted copy" files of build output).
-- [ ] Smart home (Home Assistant: front door lock, Ecobee, Ring) in the drawer or a second screen.
+- [x] Ring cameras live (Home Assistant, WebRTC): Cameras button and drawer shortcut; ha_cameras picks which.
+- [ ] Smart home: front door lock and Ecobee, once they are in Home Assistant.

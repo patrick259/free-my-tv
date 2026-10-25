@@ -19,6 +19,7 @@ MAP = {
     "chevron_down": ("keyboard_arrow_down", 0), "sunrise": ("wb_twilight", 1), "sunset": ("wb_twilight", 1),
     "live_tv": ("live_tv", 1), "bitcoin": ("currency_bitcoin", 0),
     "keystone": ("settings_overscan", 1), "cast": ("cast", 1), "scoreboard": ("scoreboard", 1),
+    # "videocam" (the Cameras button) is drawn by hand, not from the font: keep it out of here.
 }
 
 

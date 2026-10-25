@@ -189,6 +189,15 @@ final class Prefs {
         put("scoresOffered", true);
     }
 
+    /** Cameras was added to an already-saved list of top buttons once (HomeApps.topButtonKeys). */
+    static boolean camerasOffered() {
+        return sp().getBoolean("camerasOffered", false);
+    }
+
+    static void setCamerasOffered() {
+        put("camerasOffered", true);
+    }
+
     static void setTopButtons(List<String> keys) {
         StringBuilder sb = new StringBuilder();
         for (String p : keys) sb.append(sb.length() == 0 ? "" : ",").append(p);
