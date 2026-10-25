@@ -274,6 +274,10 @@ public class ScoresActivity extends Activity {
         // Room around the cards for the focused one (3% larger, with its white border) inside the scroll's edges.
         scroll.setPadding(px(16), px(16), px(16), px(16));
         GridLayout grid = new GridLayout(this);
+        // The focused card grows 3% about its middle (about 8 px a side); the grid still trims what crosses its own
+        // edges, so the left column and top row get room inside it (the cards' right and bottom margins cover the rest).
+        grid.setPadding(px(12), px(12), 0, 0);
+        grid.setClipToPadding(false);
         int columns = poll == null ? 3 : 2, pollW = px(540);
         grid.setColumnCount(columns);
         // Your teams first, then live, then upcoming by start, then finished.
@@ -283,7 +287,7 @@ public class ScoresActivity extends Activity {
             int sa = order(a), sb = order(b);
             return sa != sb ? Integer.compare(sa, sb) : a.optString("date").compareTo(b.optString("date"));
         });
-        int width = getResources().getDisplayMetrics().widthPixels - px(160) - px(32) - (poll == null ? 0 : pollW + px(8));
+        int width = getResources().getDisplayMetrics().widthPixels - px(160) - px(32) - px(12) - (poll == null ? 0 : pollW + px(8));
         int cardW = (width - columns * px(24)) / columns;     // each card keeps a 24 gap on its right, the last too
         for (JSONObject e : events) {
             View card = card(e);
