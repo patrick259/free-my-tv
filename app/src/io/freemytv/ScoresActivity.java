@@ -40,8 +40,8 @@ import java.util.concurrent.Executors;
 /**
  * Scores: the leagues in season (ESPN's public scoreboards, no key), Formula 1 first while its season runs. A tab per
  * league (← →); for F1 the race weekend (circuit map, countdown, sessions and winners), the drivers with their team
- * colors and flags, and the constructors as bars; for the others today's and
- * tomorrow's games (logos, score, status, network), your teams (favorite_teams) first with a star; in college football
+ * colors and flags, and the constructors as bars (to read, not to select: only the sessions open something); for
+ * football the week's games (Thursday's finals too), for the others today's and tomorrow's games (logos, score, status, network), your teams (favorite_teams) first with a star; in college football
  * the games with a ranked team or one of yours. OK on a game (or an F1 session) opens its details (GameActivity). Live scores refresh every 30 s. Back comes home.
  */
 public class ScoresActivity extends Activity {
@@ -200,7 +200,14 @@ public class ScoresActivity extends Activity {
                     List<JSONObject> events = new ArrayList<>();
                     Calendar day = Calendar.getInstance();
                     boolean college = league[1].contains("college");
-                    for (int d = 0; d < 2; d++) {
+                    // Football plays weekly (Thursday to Monday in the NFL): the whole week, finals included.
+                    if (league[1].startsWith("football/")) {
+                        JSONArray e = Sports.get(league[1] + "/scoreboard" + (college ? "?groups=80" : "")).optJSONArray("events");
+                        for (int i = 0; e != null && i < e.length(); i++) {
+                            if (!college || rankedOrFavorite(e.getJSONObject(i))) events.add(e.getJSONObject(i));
+                        }
+                    }
+                    for (int d = 0; d < 2 && !league[1].startsWith("football/"); d++) {
                         // College: every FBS game (groups=80), then only those with a ranked team or one of yours.
                         String path = league[1] + "/scoreboard?dates=" + ymd(day) + (college ? "&groups=80" : "");
                         JSONArray e = Sports.get(path).optJSONArray("events");
@@ -209,11 +216,22 @@ public class ScoresActivity extends Activity {
                         }
                         day.add(Calendar.DAY_OF_YEAR, 1);
                     }
-                    if (events.isEmpty()) {   // nothing today or tomorrow: ESPN's own pick (this week's games)
+                    if (events.isEmpty() && !college) {   // nothing today or tomorrow: ESPN's own pick (this week's games)
                         JSONArray e = Sports.get(league[1] + "/scoreboard").optJSONArray("events");
                         for (int i = 0; e != null && i < e.length(); i++) events.add(e.getJSONObject(i));
                     }
-                    main.post(() -> show(index, games(events, league[1]), first));
+                    // College: the AP Top 25 beside the games (ESPN's, so it's the new poll as soon as it's out).
+                    JSONObject poll = null;
+                    if (college) {
+                        try {
+                            JSONArray polls = Sports.get(league[1] + "/rankings").optJSONArray("rankings");
+                            poll = polls == null || polls.length() == 0 ? null : polls.optJSONObject(0);
+                        } catch (Exception e) {
+                            AppLog.w("rankings: " + e.getMessage());
+                        }
+                    }
+                    final JSONObject top = poll;
+                    main.post(() -> show(index, games(events, league[1], top), first));
                 }
             } catch (Exception e) {
                 AppLog.w("scores " + league[0] + ": " + e.getMessage());
@@ -235,12 +253,13 @@ public class ScoresActivity extends Activity {
 
     // MARK: - Team leagues: game cards
 
-    private View games(List<JSONObject> events, String path) {
+    private View games(List<JSONObject> events, String path, JSONObject poll) {
         ScrollView scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
         scroll.setClipToPadding(false);
         GridLayout grid = new GridLayout(this);
-        grid.setColumnCount(3);
+        int columns = poll == null ? 3 : 2, pollW = px(540);
+        grid.setColumnCount(columns);
         // Your teams first, then live, then upcoming by start, then finished.
         events.sort((a, b) -> {
             boolean fa = mine(a), fb = mine(b);
@@ -248,7 +267,8 @@ public class ScoresActivity extends Activity {
             int sa = order(a), sb = order(b);
             return sa != sb ? Integer.compare(sa, sb) : a.optString("date").compareTo(b.optString("date"));
         });
-        int cardW = (getResources().getDisplayMetrics().widthPixels - px(160) - 2 * px(24)) / 3;
+        int width = getResources().getDisplayMetrics().widthPixels - px(160) - (poll == null ? 0 : pollW + px(8));
+        int cardW = (width - (columns - 1) * px(24)) / columns;
         for (JSONObject e : events) {
             View card = card(e);
             if (card == null) continue;
@@ -258,8 +278,90 @@ public class ScoresActivity extends Activity {
             lp.setMargins(0, 0, px(24), px(24));
             grid.addView(card, lp);
         }
-        scroll.addView(grid);
+        if (poll == null) {
+            scroll.addView(grid);
+            return scroll;
+        }
+        LinearLayout row = new LinearLayout(this);
+        row.addView(grid);
+        row.addView(poll(poll), new LinearLayout.LayoutParams(pollW, ViewGroup.LayoutParams.WRAP_CONTENT));
+        scroll.addView(row);
         return scroll;
+    }
+
+    /** One of your teams? (The poll's teams have no full name: "Oregon" + "Ducks".) */
+    private static boolean pollFavorite(JSONObject team) {
+        try {
+            String full = team.optString("displayName", team.optString("location") + " " + team.optString("name"));
+            return Sports.favorite(new JSONObject().put("team", new JSONObject().put("displayName", full)));
+        } catch (org.json.JSONException e) {
+            return false;
+        }
+    }
+
+    /** The poll: rank, the week's move (▲ green, ▼ red), logo, team and record; then the others receiving votes. To read only. */
+    private View poll(JSONObject poll) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(px(26), px(24), px(26), px(26));
+        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {0xFF2A2A10, CARD, CARD});
+        bg.setCornerRadius(px(24));
+        box.setBackground(bg);
+        String week = poll.optJSONObject("occurrence") == null ? "" : poll.optJSONObject("occurrence").optString("displayValue");
+        TextView head = text((poll.optString("shortName", "AP Poll").replace("Poll", "Top 25") + (week.isEmpty() ? "" : "  ·  " + week)).toUpperCase(Ui.locale()),
+                21, 0xFFFFD60A, Ui.semibold);
+        head.setLetterSpacing(0.06f);
+        head.setPadding(px(6), 0, 0, px(14));
+        box.addView(head);
+        JSONArray ranks = poll.optJSONArray("ranks");
+        for (int i = 0; ranks != null && i < ranks.length() && i < 25; i++) {
+            JSONObject r = ranks.optJSONObject(i);
+            JSONObject team = r.optJSONObject("team");
+            if (team == null) continue;
+            boolean mine = pollFavorite(team);
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(px(6), px(6), px(8), px(6));
+            if (mine) row.setBackground(round(0x26FFD60A));
+            TextView n = text(String.valueOf(r.optInt("current")), 23, INK, Ui.semibold);
+            n.setGravity(Gravity.END);
+            row.addView(n, new LinearLayout.LayoutParams(px(36), ViewGroup.LayoutParams.WRAP_CONTENT));
+            String trend = r.optString("trend", "-");
+            boolean up = trend.startsWith("+"), down = trend.startsWith("-") && trend.length() > 1;
+            TextView t = text(up ? "▲" + trend.substring(1) : down ? "▼" + trend.substring(1) : "–", 17,
+                    up ? 0xFF30D158 : down ? 0xFFFF453A : 0xFF636366, Ui.semibold);
+            t.setGravity(Gravity.CENTER);
+            row.addView(t, new LinearLayout.LayoutParams(px(58), ViewGroup.LayoutParams.WRAP_CONTENT));
+            ImageView logo = new ImageView(this);
+            logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            LinearLayout.LayoutParams ll = new LinearLayout.LayoutParams(px(34), px(34));
+            ll.setMarginEnd(px(12));
+            row.addView(logo, ll);
+            JSONArray logos = team.optJSONArray("logos");
+            logo(logo, logos == null || logos.length() == 0 ? null : logos.optJSONObject(0).optString("href"));
+            TextView name = text(team.optString("nickname", team.optString("location")) + (mine ? "  ★" : ""), 23, INK, mine ? Ui.semibold : Ui.medium);
+            name.setSingleLine();
+            name.setEllipsize(TextUtils.TruncateAt.END);
+            row.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            row.addView(text(r.optString("recordSummary"), 20, DIM, Ui.medium));
+            box.addView(row);
+        }
+        JSONArray others = poll.optJSONArray("others");
+        if (others != null && others.length() > 0) {
+            List<String> names = new ArrayList<>();
+            for (int i = 0; i < others.length() && i < 8; i++) {
+                JSONObject team = others.optJSONObject(i).optJSONObject("team");
+                if (team == null) continue;
+                boolean mine = pollFavorite(team);
+                names.add(team.optString("nickname") + (mine ? " ★" : ""));
+            }
+            TextView o = text(Ui.tr("Also receiving votes") + ":  " + TextUtils.join(", ", names), 19, DIM, Ui.regular);
+            o.setSingleLine(false);
+            o.setLineSpacing(px(4), 1);
+            o.setPadding(px(6), px(16), 0, 0);
+            box.addView(o);
+        }
+        return box;
     }
 
     private static JSONArray competitors(JSONObject e) {
@@ -307,9 +409,11 @@ public class ScoresActivity extends Activity {
             card.setPadding(px(24), px(20), px(24), px(20));
             card.setFocusable(true);
             card.setFocusableInTouchMode(true);     // keeps focus if Fire OS switches to touch mode (else the next arrow is eaten)
-            card.setBackground(round(CARD));
+            // A wash of each team's color from its side (away left, home right).
+            int away0 = GameActivity.ink(GameActivity.teamColors(away)), home0 = GameActivity.ink(GameActivity.teamColors(home));
+            card.setBackground(tint(away0, home0, false));
             card.setOnFocusChangeListener((v, has) -> {
-                v.setBackground(round(has ? 0xFF2C2C33 : CARD));
+                v.setBackground(tint(away0, home0, has));
                 v.animate().scaleX(has ? 1.03f : 1).scaleY(has ? 1.03f : 1).setDuration(150).start();
             });
             boolean pre = state.equals("pre");
@@ -391,11 +495,10 @@ public class ScoresActivity extends Activity {
     /** The F1 weekend card's next session row (its view id). */
     private int f1Session = View.NO_ID;
 
-    private View f1(JSONObject board, JSONObject standings) {
-        // Team colors by name (ESPN's constructors, with our overrides).
+    /** Team colors by name (ESPN's constructors, with our overrides). Also for an F1 session's page (GameActivity). */
+    static java.util.Map<String, Integer> teamColors(JSONObject standings) {
         java.util.Map<String, Integer> colors = new java.util.HashMap<>();
-        JSONArray groups = standings.optJSONArray("children");
-        JSONArray drivers = entries(groups, 0), teams = entries(groups, 1);
+        JSONArray teams = entries(standings.optJSONArray("children"), 1);
         for (int i = 0; teams != null && i < teams.length(); i++) {
             JSONObject t = teams.optJSONObject(i).optJSONObject("team");
             if (t == null) continue;
@@ -405,6 +508,19 @@ public class ScoresActivity extends Activity {
             }
         }
         for (String[] c : TEAM_COLORS) colors.put(c[0], 0xFF000000 | Integer.parseInt(c[1], 16));
+        return colors;
+    }
+
+    /** A driver's team (ESPN's driver code), or "". */
+    static String seat(String driver) {
+        for (String[] seat : SEATS) if (seat[1].equals(driver) || seat[2].equals(driver)) return seat[0];
+        return "";
+    }
+
+    private View f1(JSONObject board, JSONObject standings) {
+        java.util.Map<String, Integer> colors = teamColors(standings);
+        JSONArray groups = standings.optJSONArray("children");
+        JSONArray drivers = entries(groups, 0), teams = entries(groups, 1);
 
         LinearLayout cols = new LinearLayout(this);
         JSONArray events = board.optJSONArray("events");
@@ -421,7 +537,7 @@ public class ScoresActivity extends Activity {
         return cols;
     }
 
-    private static JSONArray entries(JSONArray groups, int g) {
+    static JSONArray entries(JSONArray groups, int g) {
         JSONObject group = groups == null ? null : groups.optJSONObject(g);
         return group == null || group.optJSONObject("standings") == null ? null
                 : group.optJSONObject("standings").optJSONArray("entries");
@@ -498,6 +614,7 @@ public class ScoresActivity extends Activity {
         row.setPadding(px(4), px(9), px(4), px(9));
         row.setFocusable(true);
         row.setFocusableInTouchMode(true);     // keeps focus if Fire OS switches to touch mode (else the next arrow is eaten)
+        row.setTag(SESSION);
         row.setOnFocusChangeListener((v, has) -> v.setBackground(has ? round(0x33FFFFFF) : null));
         View dot = new View(this);
         GradientDrawable d = new GradientDrawable();
@@ -539,12 +656,7 @@ public class ScoresActivity extends Activity {
             LinearLayout row = new LinearLayout(this);
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(px(16), px(10), px(20), px(10));
-            row.setFocusable(true);
-            row.setFocusableInTouchMode(true);     // keeps focus if Fire OS switches to touch mode (else the next arrow is eaten)
-            final int bg = i == 0 ? 0xFF26262C : 0;
-            row.setBackground(bg == 0 ? null : round(bg));
-            row.setOnFocusChangeListener((v, has) -> v.setBackground(has ? round(0xFF4A4A54) : bg == 0 ? null : round(bg)));
-            row.setNextFocusLeftId(f1Session);
+            if (i == 0) row.setBackground(round(0xFF26262C));     // the standings are to read: nothing here takes focus
             TextView rank = text(stat(entry, "rank"), 24, DIM, Ui.semibold);
             rank.setGravity(Gravity.END);
             row.addView(rank, new LinearLayout.LayoutParams(px(40), ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -589,9 +701,6 @@ public class ScoresActivity extends Activity {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.VERTICAL);
             row.setPadding(px(16), px(8), px(16), px(8));
-            row.setFocusable(true);
-            row.setFocusableInTouchMode(true);     // keeps focus if Fire OS switches to touch mode (else the next arrow is eaten)
-            row.setOnFocusChangeListener((v, has) -> v.setBackground(has ? round(0xFF4A4A54) : null));
             LinearLayout line = new LinearLayout(this);
             TextView n = text(team, 24, INK, Ui.medium);
             line.addView(n, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
@@ -648,14 +757,11 @@ public class ScoresActivity extends Activity {
         return f;
     }
 
-    private static int teamColor(String driver, java.util.Map<String, Integer> colors) {
-        for (String[] seat : SEATS) {
-            if (seat[1].equals(driver) || seat[2].equals(driver)) {
-                Integer c = colors.get(seat[0]);
-                return c == null ? DIM : c;
-            }
-        }
-        return 0xFF48484A;
+    static int teamColor(String driver, java.util.Map<String, Integer> colors) {
+        String team = seat(driver);
+        if (team.isEmpty()) return 0xFF48484A;
+        Integer c = colors.get(team);
+        return c == null ? DIM : c;
     }
 
     /** This race's round in the season (ESPN's calendar), or 0. */
@@ -792,6 +898,16 @@ public class ScoresActivity extends Activity {
         return t;
     }
 
+    private GradientDrawable tint(int away, int home, boolean focused) {
+        int base = focused ? 0xFF34343C : CARD;
+        float f = focused ? 0.66f : 0.74f;
+        GradientDrawable d = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[] {GameActivity.mix(away, base, f), base, GameActivity.mix(home, base, f)});
+        d.setCornerRadius(px(18));
+        if (focused) d.setStroke(px(3), 0xE6FFFFFF);
+        return d;
+    }
+
     private GradientDrawable round(int color) {
         GradientDrawable d = new GradientDrawable();
         d.setColor(color);
@@ -810,7 +926,14 @@ public class ScoresActivity extends Activity {
         return Math.round(design * k);
     }
 
+    /** The F1 sessions' tag: ← → stay on them (nothing beside them takes focus, so they'd jump to another tab). */
+    private static final String SESSION = "f1-session";
+
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if ((keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)
+                && getCurrentFocus() != null && SESSION.equals(getCurrentFocus().getTag())) {
+            return true;
+        }
         // ↓ from the F1 tab: its weekend (the next session), not the standings beside it.
         if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && getCurrentFocus() != null && getCurrentFocus().getParent() == tabs
                 && current >= 0 && "F1".equals(inSeason.get(current)[0])) {

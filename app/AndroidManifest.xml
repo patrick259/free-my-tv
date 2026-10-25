@@ -219,5 +219,15 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+        <!-- tools/firetv-measure.sh hands its measurements in here (Fire OS refuses ADB from the TV itself, so the app
+             can't measure on its own); only adb's shell holds DUMP. -->
+        <receiver
+            android:name=".MetricsReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="io.freemytv.METRICS" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

@@ -51,6 +51,12 @@ public class HomeActivity extends Activity {
         WatchNext.probe(this);
     }
 
+    /** In the log for tools/firetv-measure.sh: the home screen is up and takes the remote (a Home press's end). */
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) AppLog.w("home screen focused");
+    }
+
     @Override protected void onPause() {
         if (home != null) home.pause();
         super.onPause();

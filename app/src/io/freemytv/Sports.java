@@ -630,7 +630,7 @@ final class Sports {
     /** How far apart two colors look (RGB distance, weighted for the eye); under APART a logo gets lost. */
     private static final double APART = 95;
 
-    private static double apart(int a, int b) {
+    static double apart(int a, int b) {
         double dr = ((a >> 16) & 255) - ((b >> 16) & 255), dg = ((a >> 8) & 255) - ((b >> 8) & 255), db = (a & 255) - (b & 255);
         return Math.sqrt(2 * dr * dr + 4 * dg * dg + 3 * db * db) / 3;
     }
@@ -739,7 +739,7 @@ final class Sports {
     }
 
     /** A team color darkened a little (a bright yellow or white would wash out the text and the glass). */
-    private static int deepen(int color) {
+    static int deepen(int color) {
         float[] hsv = new float[3];
         android.graphics.Color.colorToHSV(color, hsv);
         hsv[2] = Math.min(hsv[2], 0.62f);

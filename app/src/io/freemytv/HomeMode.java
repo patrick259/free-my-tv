@@ -934,7 +934,7 @@ final class HomeMode {
         if (pss > 0) putMetric(c, mode, "homePssMB", pss / 1024);
     }
 
-    private static void putMetric(Context c, String mode, String key, long value) throws JSONException {
+    static void putMetric(Context c, String mode, String key, long value) throws JSONException {
         JSONObject s = state(c);
         JSONObject metrics = s.optJSONObject("metrics");
         if (metrics == null) metrics = new JSONObject();
