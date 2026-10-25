@@ -14,7 +14,7 @@ import java.io.InputStreamReader;
  * redirect alone misses it (in Fire TV's settings, which are a page of that screen, or right after an update). The
  * system logs each press as a start of the home screen by the system ("cat=[android.intent.category.HOME] ... from
  * uid 1000"), so with READ_LOGS (granted over adb by tools/firetv-install.sh) we follow ActivityManager's log.
- * Without the permission it does nothing.
+ * The other app starts go to FireButtons (the remote's app buttons). Without the permission it does nothing.
  */
 final class HomeWatcher {
     private final Context context;
@@ -61,6 +61,9 @@ final class HomeWatcher {
                         }
                         if (line.contains("START u0") && line.contains("category.HOME") && line.contains("from uid 1000")) {
                             main.post(onHome);
+                        } else if (line.contains("START u0")) {
+                            final String l = line;
+                            main.post(() -> FireButtons.line(context, l));     // the remote's app buttons
                         }
                     }
                 }

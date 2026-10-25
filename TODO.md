@@ -22,8 +22,8 @@ Open items for the Insignia Fire TV build (branch `wip/fire-home-redirect`). New
       would interrupt playback when Netflix was already open. Needs a decision.
 
 ## Remote and Home button
-- [ ] Remap remote app buttons: DirecTV → YouTube TV, Peacock → Paramount+ (need to press each while watching
-      the log; also identify the "TV button" that reloads the current app).
+- [x] Remote app buttons: Peacock → Paramount+, DirecTV → YouTube TV (`FireButtons`, from the system log). The
+      "TV" button sends Home.
 - [ ] Cover the ~5 s Home-button wait with a snapshot of the home screen (accessibility overlay, as Home on Fire
       does), swallowing presses while it's up.
 - [ ] Sometimes the first ←/→ after ↑ doesn't register (home screen and Scores page). Works with adb key presses
