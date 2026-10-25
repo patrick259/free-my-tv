@@ -3128,8 +3128,24 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             c.restore();
             titlePaint.setAlpha(255);
         }
-        text(c, label, x, titleTop - 34 * k, labelPaint, 0xC7FFFFFF, alpha);
+        float labelX = x, labelBase = titleTop - 34 * k;
+        if (p.game != null && "in".equals(p.game.state)) labelX += drawLiveBadge(c, x, labelBase, alpha);
+        text(c, label, labelX, labelBase, labelPaint, 0xC7FFFFFF, alpha);
         if (meta) text(c, p.meta, x, metaBase, metaPaint, 0xD1FFFFFF, alpha);
+    }
+
+    /** A red "LIVE" pill on the label's line (a game on now); returns how far the label moves right. */
+    private float drawLiveBadge(Canvas c, float x, float base, float alpha) {
+        String live = Ui.tr("LIVE");
+        float pad = 12 * k, tw = labelPaint.measureText(live), half = Ui.halfCap(labelPaint), cy = base - half;
+        tmp.set(x, cy - half - 9 * k, x + tw + 2 * pad, cy + half + 9 * k);
+        fill.setShader(null);
+        fill.setColor(0xFFE5242A);
+        fill.setAlpha(Math.round(255 * alpha));
+        c.drawRoundRect(tmp, tmp.height() / 2, tmp.height() / 2, fill);
+        fill.setAlpha(255);
+        text(c, live, x + pad, base, labelPaint, 0xFFFFFFFF, alpha);
+        return tmp.width() + 14 * k;
     }
 
     /** The title written out (up to two lines), laid out once per title. */

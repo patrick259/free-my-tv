@@ -44,6 +44,8 @@ import java.util.concurrent.Executors;
  */
 final class Sports {
     private static final String API = "https://site.api.espn.com/apis/site/v2/sports/";
+    /** While a game in the hero is live (or about to start): its score every 30 s. */
+    private static final long LIVE_EVERY = 30_000L;
     private static final long EVERY = 10 * 60_000L, AHEAD = 24 * 3600_000L, MAX_LIVE = 5 * 3600_000L;
     private static final int MAX_NFL = 2, MAX_COLLEGE = 2;
     /** Title sponsors in front of F1 race names ("MSC Cruises United States Grand Prix"); others keep their full name. */
@@ -116,6 +118,9 @@ final class Sports {
         int awayAlt, homeAlt;   // the teams' second colors: the background when a logo would vanish in the first
         long start;
         int weight;             // importance in the hero: the postseason, Monday Night Football, two ranked teams
+        String sport = "";      // "baseball", "football", "hockey", "f1": for the close-finish alerts (GameAlerts)
+        int period, awayScore, homeScore;   // inning, quarter or period; the score
+        boolean favorite;       // one of your teams
         String state, detail;   // "pre", "in", "post"; ESPN's "Top 5th", "Q3 4:12"
     }
 
@@ -143,6 +148,21 @@ final class Sports {
         return x.get(Calendar.YEAR) == y.get(Calendar.YEAR) && x.get(Calendar.DAY_OF_YEAR) == y.get(Calendar.DAY_OF_YEAR);
     }
 
+    /** Every game found, finished ones too (GameAlerts: final scores). */
+    List<Recs.Pick> all() {
+        return picks;
+    }
+
+    /** A game in the hero is on, or starts within 15 minutes. */
+    private boolean live() {
+        long t = System.currentTimeMillis();
+        for (Recs.Pick p : now()) {
+            Game g = p.game;
+            if ("in".equals(g.state) || ("pre".equals(g.state) && g.start - t < 15 * 60_000L)) return true;
+        }
+        return false;
+    }
+
     /** The games to show now (finished ones and ones too far ahead left out), live first, then by start. */
     List<Recs.Pick> now() {
         if (!Config.SHOW_SPORTS) return new ArrayList<>();
@@ -158,7 +178,9 @@ final class Sports {
         }
         Collections.sort(out, (a, b) -> {
             boolean fa = "F1".equals(a.game.league), fb = "F1".equals(b.game.league);
-            if (fa != fb) return fa ? -1 : 1;       // a Formula 1 session always leads, then the biggest games
+            if (fa != fb) return fa ? -1 : 1;       // a Formula 1 session always leads, then live games, then the biggest
+            boolean ia = "in".equals(a.game.state), ib = "in".equals(b.game.state);
+            if (ia != ib) return ia ? -1 : 1;
             if (a.game.weight != b.game.weight) return Integer.compare(b.game.weight, a.game.weight);
             boolean la = "in".equals(a.game.state), lb = "in".equals(b.game.state);
             return la != lb ? (la ? -1 : 1) : Long.compare(a.game.start, b.game.start);
@@ -167,7 +189,7 @@ final class Sports {
     }
 
     void refreshIfStale() {
-        if (!Config.SHOW_SPORTS || fetching || System.currentTimeMillis() - fetchedAt < EVERY) return;
+        if (!Config.SHOW_SPORTS || fetching || System.currentTimeMillis() - fetchedAt < (live() ? LIVE_EVERY : EVERY)) return;
         fetching = true;
         io.execute(() -> {
             try {
@@ -212,12 +234,26 @@ final class Sports {
             Recs.Pick p = teamPick(e, c, !post ? "MLB" : note.isEmpty() ? Ui.tr("MLB POSTSEASON") : note.toUpperCase(Ui.locale()), false);
             if (p == null) continue;
             p.game.weight = !post ? FAVORITE : POSTSEASON + (note.startsWith("World Series") ? FINAL : 0);
+            p.game.sport = "baseball";
             add(out, p);
         }
     }
 
+    /** A live session's leader (ESPN's order 1): "M. Verstappen", or empty. */
+    private static String leader(JSONObject session) {
+        JSONArray c = session.optJSONArray("competitors");
+        for (int i = 0; c != null && i < c.length(); i++) {
+            JSONObject x = c.optJSONObject(i);
+            if (x != null && x.optInt("order", 99) == 1 && x.optJSONObject("athlete") != null) {
+                JSONObject a = x.optJSONObject("athlete");
+                return a.optString("shortName", a.optString("displayName"));
+            }
+        }
+        return "";
+    }
+
     /** Hero weights: the postseason, a championship on top of it, Monday Night Football, two ranked college teams. */
-    private static final int POSTSEASON = 5000, FINAL = 1000, MONDAY_NIGHT = 3000, FAVORITE = 2500, RANKED_PAIR = 2000;
+    static final int POSTSEASON = 5000, FINAL = 1000, MONDAY_NIGHT = 3000, FAVORITE = 2500, RANKED_PAIR = 2000;
 
     /** One of your teams (favorite_teams: ESPN's full names, "Boston Red Sox")? */
     static boolean favorite(JSONObject competitor) {
@@ -278,6 +314,7 @@ final class Sports {
             Recs.Pick p = teamPick(e, c, label, college);
             if (p == null) continue;
             p.game.weight = weight;
+            p.game.sport = "NHL".equals(league) ? "hockey" : "football";
             chosen.add(p);
         }
         Collections.sort(chosen, (x, y) -> Integer.compare(y.game.weight, x.game.weight));
@@ -303,6 +340,7 @@ final class Sports {
                 Game g = new Game();
                 g.id = "f1-" + e.optString("id") + "-" + type;
                 g.league = "F1";
+                g.sport = "f1";
                 g.leagueLogo = logo;
                 g.place = e.optJSONObject("circuit") == null ? "" : e.getJSONObject("circuit").optString("fullName");
                 g.homeColor = 0xFFE10600;
@@ -318,7 +356,10 @@ final class Sports {
                 }
                 p.label = ("FORMULA 1 · " + session).toUpperCase(Ui.locale());
                 if ("appletv".equals(app[1])) p.link = F1_ON_APPLE_TV;
-                p.meta = when(g) + (g.place.isEmpty() ? "" : " · " + g.place) + " · " + app[3];
+                String leader = "in".equals(g.state) ? leader(c) : "";
+                p.meta = "in".equals(g.state)
+                        ? (leader.isEmpty() ? "" : Ui.trf("P1 {driver}", "driver", leader) + " · ") + (g.place.isEmpty() ? "" : g.place + " · ") + app[3]
+                        : when(g) + (g.place.isEmpty() ? "" : " · " + g.place) + " · " + app[3];
                 add(out, p);
             }
         }
@@ -363,15 +404,24 @@ final class Sports {
         g.homeColor = color(home);
         g.awayAlt = color(away, "alternateColor");
         g.homeAlt = color(home, "alternateColor");
+        g.awayScore = away.optInt("score");
+        g.homeScore = home.optInt("score");
+        g.favorite = favorite(away) || favorite(home);
         state(g, c, e.optString("date"));
         Recs.Pick p = pick(g, app);
         boolean neutral = c.optBoolean("neutralSite");
-        p.title = g.away + (neutral ? " vs " : " at ") + g.home;
         p.label = label;
-        String score = "pre".equals(g.state) ? "" : " · " + away.getJSONObject("team").optString("abbreviation") + " "
-                + away.optString("score") + ", " + home.getJSONObject("team").optString("abbreviation") + " " + home.optString("score");
         String series = series(c, teams);
-        p.meta = when(g) + score + (series.isEmpty() ? "" : " · " + series) + " · " + app[3];
+        if ("in".equals(g.state)) {
+            // Live: the score in the title ("Rays 3 – 2 Brewers"), the inning or period first in the details.
+            p.title = g.away + "  " + away.optString("score") + " – " + home.optString("score") + "  " + g.home;
+            p.meta = (g.detail.isEmpty() ? "" : g.detail + " · ") + (series.isEmpty() ? "" : series + " · ") + app[3];
+        } else {
+            p.title = g.away + (neutral ? " vs " : " at ") + g.home;
+            String score = "pre".equals(g.state) ? "" : " · " + away.getJSONObject("team").optString("abbreviation") + " "
+                    + away.optString("score") + ", " + home.getJSONObject("team").optString("abbreviation") + " " + home.optString("score");
+            p.meta = when(g) + score + (series.isEmpty() ? "" : " · " + series) + " · " + app[3];
+        }
         return p;
     }
 
@@ -476,6 +526,7 @@ final class Sports {
         JSONObject type = c.optJSONObject("status") == null ? null : c.getJSONObject("status").optJSONObject("type");
         g.state = type == null ? "pre" : type.optString("state", "pre");
         g.detail = type == null ? "" : type.optString("shortDetail");
+        g.period = c.optJSONObject("status") == null ? 0 : c.getJSONObject("status").optInt("period");
     }
 
     /** "Live · Top 5th", "Tonight 5:08 PM", "Tomorrow 10:00 AM", "Sun 1:25 PM". */

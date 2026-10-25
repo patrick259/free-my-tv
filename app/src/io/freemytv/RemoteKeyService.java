@@ -19,7 +19,7 @@ import android.view.accessibility.AccessibilityEvent;
  * Fire OS 7 handles Home before the key filter (it never reaches onKeyEvent), and Home holds app starts back for
  * about 5 s (stopAppSwitches), so ours comes up that long after Amazon's. At power-on it leaves the TV to come back
  * to its last input first (PowerOn), and while you're in Fire TV's settings (a page of Amazon's home screen:
- * FireSettings) it waits for Home.
+ * FireSettings) it waits for Home. It also shows the game alerts (GameAlerts).
  */
 public class RemoteKeyService extends AccessibilityService {
     /** Window-state events come in bursts: one redirect per burst. */
@@ -32,6 +32,9 @@ public class RemoteKeyService extends AccessibilityService {
         }
     };
 
+    /** Banners over any app for the games you'd want to know about (GameAlerts). */
+    private final GameAlerts alerts = new GameAlerts(this);
+
     /** Every Home press, also where no window changes (Amazon's home screen already in front). */
     private final HomeWatcher homeWatcher = new HomeWatcher(this, () -> {
         FireSettings.homePressed(this);
@@ -41,13 +44,17 @@ public class RemoteKeyService extends AccessibilityService {
     @Override protected void onServiceConnected() {
         super.onServiceConnected();
         registerReceiver(screenOn, new IntentFilter(Intent.ACTION_SCREEN_ON));
-        if (HomeMode.AMAZON) homeWatcher.start();
+        if (HomeMode.AMAZON) {
+            homeWatcher.start();
+            alerts.start();
+        }
         // Started by a boot rather than woken: the screen-on came before us.
         if (SystemClock.elapsedRealtime() < 3 * 60_000) PowerOn.screenOn(this);
     }
 
     @Override public void onDestroy() {
         homeWatcher.stop();
+        alerts.stop();
         try {
             unregisterReceiver(screenOn);
         } catch (IllegalArgumentException ignored) {
