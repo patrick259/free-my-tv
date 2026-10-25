@@ -37,6 +37,8 @@ import java.util.Locale;
  * names fade after a few seconds and any key brings them back. After five minutes the live view pauses. Back comes home.
  */
 public class CamerasActivity extends Activity {
+    /** Which camera to start on (its place in ha_cameras), from the home screen's camera row. */
+    static final String EXTRA_CAMERA = "camera";
     private static final int BG = 0xFF000000, INK = 0xFFF5F5F7, LIVE = 0xFFFF453A;
     private static final long HIDE_MS = 5_000, PAUSE_MS = 5 * 60_000, SWITCH_MS = 350, CONNECT_MS = 30_000;
 
@@ -149,8 +151,15 @@ public class CamerasActivity extends Activity {
         });
         web.loadDataWithBaseURL(Config.HA_URL + "/", asset("cameras.html"), "text/html", "utf-8", null);
         new Thread(this::names, "camera-names").start();
-        current = 0;
-        chips.get(0).requestFocus();
+        current = Math.max(0, Math.min(ids.size() - 1, getIntent().getIntExtra(EXTRA_CAMERA, 0)));
+        chips.get(current).requestFocus();
+    }
+
+    @Override protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        if (!intent.hasExtra(EXTRA_CAMERA) || ids.isEmpty()) return;
+        current = Math.max(0, Math.min(ids.size() - 1, intent.getIntExtra(EXTRA_CAMERA, 0)));
+        chips.get(current).requestFocus();     // onResume starts it
     }
 
     @Override protected void onResume() {

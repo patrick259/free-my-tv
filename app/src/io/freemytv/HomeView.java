@@ -80,6 +80,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final float CAPSULE_TOP = 46, CAPSULE_H = 68, BUTTON = 56;
     // Bottom drawer (measured with it open; everything moves up by SHIFT).
     private static final float SHIFT = 560, ROW_TITLE = 518, ROW_TOP = 540, ROW_H = 126, CARDS_TOP = 708, CARDS_H = 300;
+    // The cameras row (Home Assistant) between the shortcuts and the cards, the full width: its pictures' height, and
+    // how much higher the drawer's buttons (and the shelf, up to the top edge) sit to make room for it (title,
+    // pictures, gap).
+    private static final float CAM_H = 186, CAM_GAP = 24, CAM_BELOW = 38, CAM_LIFT = 56 + CAM_H + CAM_BELOW;
+    private static final int Z_CAMS = 10;
     // "All Apps" sheet.
     private static final int COLUMNS = 5, VISIBLE_ROWS = 3;
     private static final float GRID_W = 300, GRID_H = 169, GRID_GAP = 40, GRID_ROW = 239, GRID_TOP = 196, GRID_RADIUS = 22;
@@ -214,6 +219,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Spring drawer = new Spring(0.46f, 0.92f, 0);
     private boolean drawerOpen;
     private int drawerIndex;
+    private Spring[] camFocus = new Spring[0];
+    private RectF[] camRects = new RectF[0];
+    private int camIndex;
+    private final Paint camImage = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final java.util.Map<Bitmap, BitmapShader> camShaders = new java.util.WeakHashMap<>();
+    private final android.graphics.Matrix camMatrix = new android.graphics.Matrix();
+    private final Paint camEdge = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private Paint camName, camWhen;
 
     // "All Apps" sheet
     private List<HomeApps.Item> others = new ArrayList<>();
@@ -548,7 +561,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         // cheaper for the GPU to composite on every frame of the drawer animation.
         measure(platter, width, Math.round(320 * kk));
         measure(tiles, width, Math.round(270 * kk));
-        measure(drawerLayer, width, Math.round(600 * kk));
+        measure(drawerLayer, width, Math.round((600 + camLift()) * kk));     // taller with the cameras row
         measure(sheetLayer, width, height);
         measure(toastLayer, Math.round(1000 * kk), Math.round(220 * kk));
         setMeasuredDimension(width, height);
@@ -566,7 +579,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         place(status, width - status.getMeasuredWidth(), 0);
         place(platter, 0, Math.round(750 * kk));
         place(tiles, 0, Math.round(790 * kk));
-        place(drawerLayer, 0, Math.round(470 * kk));
+        place(drawerLayer, 0, Math.round((470 - camLift()) * kk));
         sheetLayer.layout(0, 0, width, height);
         sheetLayer.setPivotX(width / 2f);
         sheetLayer.setPivotY(height / 2f);
@@ -638,6 +651,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         rowTitle = Ui.text(Ui.semibold, 25 * k, 0xB3FFFFFF);
         drawerLabel = Ui.text(Ui.medium, 23 * k, 0xEBFFFFFF);
         drawerLabel.setTextAlign(Paint.Align.CENTER);
+        camName = Ui.text(Ui.semibold, 22 * k, 0xFFFFFFFF);
+        camWhen = Ui.numbers(Ui.medium, 19 * k, 0xCCFFFFFF);
+        camWhen.setTextAlign(Paint.Align.RIGHT);
         cardTitle = Ui.text(Ui.semibold, 25 * k, 0xB3FFFFFF);
         cardText = Ui.text(Ui.medium, 29 * k, 0xF2FFFFFF);
         cardDim = Ui.numbers(Ui.medium, 23 * k, 0xADFFFFFF);
@@ -682,7 +698,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean topMoving = step(topFocus, dt), cardsMoving = step(cardFocus, dt);
         if (topMoving) status.invalidate();
         heroMoving |= topMoving | cardsMoving;
-        boolean drawerItemsMoving = step(drawerFocus, dt);
+        boolean drawerItemsMoving = step(drawerFocus, dt) | step(camFocus, dt);
         boolean gridMoving = step(gridFocus, dt) | scroll.step(dt);
         boolean drawerMoving = drawer.step(dt);
         boolean sheetMoving = sheet.step(dt);
@@ -743,7 +759,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void updateMotion() {
         float d = drawer.value, dc = Ui.clamp(d), s = Ui.clamp(sheet.value);
         float home = 1 - s, top = home * (1 - smoothstep(0, 0.32f, dc));
-        float shift = SHIFT * k;
+        float shift = (SHIFT + camLift()) * k;
         float lift = -d * shift;
         show(heroLayer, top, lift);
         show(status, top, lift);
@@ -1508,13 +1524,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float gap = 18 * k, groupGap = 56 * k;
         int groups = drawerInputs > 0 && drawerInputs < n ? 2 : 1;
         float tw = Math.min(230 * k, (right - left - Math.max(0, n - groups) * gap - (groups - 1) * groupGap) / Math.max(1, n));
-        float x = left, top = ROW_TOP * k;
+        float x = left, top = (ROW_TOP - camLift()) * k;
         for (int i = 0; i < n; i++) {
             if (i == drawerInputs && i > 0) x += groupGap - gap;
             drawerRects[i].set(x, top, x + tw, top + ROW_H * k);
             snap(drawerRects[i]);
             x += tw + gap;
         }
+        layoutCams();
         float cardsTop = CARDS_TOP * k, split = left + (right - left) * 0.585f;
         boolean wx = Prefs.weather(), qt = Prefs.quotes() && HomeData.active().length > 0;
         // A card that is off gives its room to the other one.
@@ -1534,8 +1551,121 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         drawerDirty = true;
     }
 
+    // MARK: - Cameras row (in the drawer, under the shortcuts)
+
+    /** How much higher the drawer's buttons sit for the cameras row (0 without cameras). */
+    private float camLift() {
+        return CameraShots.all().isEmpty() ? 0 : CAM_LIFT;
+    }
+
+    private void layoutCams() {
+        int n = CameraShots.all().size();
+        if (camFocus.length != n) {
+            camFocus = new Spring[n];
+            camRects = new RectF[n];
+            for (int i = 0; i < n; i++) {
+                camFocus[i] = new Spring(0.28f, 0.85f, 0);
+                camRects[i] = new RectF();
+            }
+            camIndex = Math.min(camIndex, Math.max(0, n - 1));
+        }
+        float x = MARGIN * k, top = (CARDS_TOP - CAM_BELOW - CAM_H) * k, ch = CAM_H * k;
+        float cw = n == 0 ? 0 : ((CONTENT_R - MARGIN) * k - (n - 1) * CAM_GAP * k) / n;
+        for (int i = 0; i < n; i++) {
+            camRects[i].set(x, top, x + cw, top + ch);
+            snap(camRects[i]);
+            x += cw + CAM_GAP * k;
+        }
+        Symbols.warm(getContext(), "videocam", 40 * k);
+    }
+
+    private void drawCams(Canvas c) {
+        List<CameraShots.Shot> shots = CameraShots.all();
+        if (shots.isEmpty() || camRects.length != shots.size()) return;
+        drawRowTitle(c, Ui.tr("Cameras"), camRects[0].left, camRects[0].top - 22 * k);
+        int top = -1;
+        for (int i = 0; i < shots.size(); i++) if (camFocus[i].value > 0.02f && (top < 0 || camFocus[i].value > camFocus[top].value)) top = i;
+        for (int i = 0; i < shots.size(); i++) if (i != top) drawCam(c, i, shots.get(i));
+        if (top >= 0) drawCam(c, top, shots.get(top));
+    }
+
+    /** A camera's latest picture, its name and when, on a shade at the bottom. Focused: larger, with a white edge. */
+    private void drawCam(Canvas c, int i, CameraShots.Shot shot) {
+        float f = Ui.clamp(camFocus[i].value), s = 1 + 0.07f * f;
+        RectF base = camRects[i];
+        float cx = base.centerX(), cy = base.centerY();
+        cell.set(cx - base.width() * s / 2, cy - base.height() * s / 2, cx + base.width() * s / 2, cy + base.height() * s / 2);
+        float r = 18 * k * s;
+        if (f > 0.01f) {
+            tmp.set(cell);
+            tmp.offset(0, 12 * k * f);
+            shadow.setColor(Ui.alpha(0xFF000000, 0.45f * f));
+            shadows.draw(c, tmp, r, SHADOW_BLUR * k, shadow);
+        }
+        Bitmap b = shot.image;
+        if (b != null && !b.isRecycled()) {
+            BitmapShader sh = camShaders.get(b);
+            if (sh == null) {
+                sh = new BitmapShader(b, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+                camShaders.put(b, sh);
+            }
+            // Fill the card (cropping the longer side), centered.
+            float scale = Math.max(cell.width() / b.getWidth(), cell.height() / b.getHeight());
+            camMatrix.setScale(scale, scale);
+            camMatrix.postTranslate(cell.centerX() - b.getWidth() * scale / 2, cell.centerY() - b.getHeight() * scale / 2);
+            sh.setLocalMatrix(camMatrix);
+            camImage.setShader(sh);
+            c.drawRoundRect(cell, r, r, camImage);
+        } else {
+            drawerGlass(c, cell, r, 0.7f, 0x14000000, 6 * k);
+            Symbols.draw(getContext(), c, "videocam", cell.centerX(), cell.top + cell.height() * 0.42f, 40 * k, tone(L_DIM, 0xB3FFFFFF));
+        }
+        // The shade under the name.
+        float shadeTop = cell.top + cell.height() * 0.5f;
+        fill.setShader(new LinearGradient(0, shadeTop, 0, cell.bottom, 0x00000000, 0xB3000000, Shader.TileMode.CLAMP));
+        tmp.set(cell.left, shadeTop, cell.right, cell.bottom);
+        c.save();
+        c.clipRect(tmp);
+        c.drawRoundRect(cell, r, r, fill);
+        c.restore();
+        fill.setShader(null);
+        float pad = 16 * k * s, baseLine = cell.bottom - 14 * k * s;
+        camName.setTextSize(22 * k * s);
+        camWhen.setTextSize(19 * k * s);
+        String when = CameraShots.when(shot.at);
+        float whenW = when.isEmpty() ? 0 : camWhen.measureText(when) + 12 * k;
+        fitPaint.set(camName);
+        String name = TextUtils.ellipsize(shot.name, fitPaint, cell.width() - 2 * pad - whenW, TextUtils.TruncateAt.END).toString();
+        c.drawText(name, cell.left + pad, baseLine, camName);
+        if (!when.isEmpty()) c.drawText(when, cell.right - pad, baseLine, camWhen);
+        if (f > 0.01f) {
+            camEdge.setStyle(Paint.Style.STROKE);
+            camEdge.setColor(Ui.alpha(WHITE, f));
+            camEdge.setStrokeWidth(4 * k);
+            tmp.set(cell);
+            tmp.inset(2 * k, 2 * k);
+            c.drawRoundRect(tmp, r - 2 * k, r - 2 * k, camEdge);
+        }
+    }
+
+    /** OK on a camera: its live view (CamerasActivity), where ← → goes on to the others. */
+    private void openCamera(int i) {
+        android.content.Intent intent = new android.content.Intent(getContext(), CamerasActivity.class)
+                .putExtra(CamerasActivity.EXTRA_CAMERA, i)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            activity.startActivity(intent);
+        } catch (RuntimeException e) {
+            showToast(Ui.trf("Couldn't open {app}.", "app", Ui.tr("Cameras")));
+        }
+    }
+
     private void openDrawer() {
         if (drawerItems.isEmpty()) return;
+        CameraShots.refreshIfStale(() -> {
+            drawerDirty = true;
+            wake();
+        });
         drawerOpen = true;
         drawer.target = 1;
         zone = Z_DRAWER;
@@ -1549,6 +1679,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         drawer.target = 0;
         zone = Z_SHELF;
         for (Spring f : drawerFocus) f.snap(0);   // the drawer goes away: its focus doesn't need to animate
+        for (Spring f : camFocus) f.snap(0);
         if (!shelf.isEmpty() && drawerIndex < drawerRects.length) shelfIndex = nearest(tileRects, drawerRects[drawerIndex].centerX());
     }
 
@@ -1585,13 +1716,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         hourPaint.setColor(tone(L_DIM, 0xADFFFFFF));
         hourTemp.setColor(drawerInk(0.95f));
         pricePaint.setColor(drawerInk(0.95f));
-        float titleBase = ROW_TITLE * k;
+        float titleBase = (ROW_TITLE - camLift()) * k;
         if (drawerInputs > 0) drawRowTitle(c, Ui.tr("Inputs"), drawerRects[0].left, titleBase);
         if (drawerInputs < drawerItems.size()) drawRowTitle(c, Ui.tr("Shortcuts"), drawerRects[drawerInputs].left, titleBase);
         int top = -1;
         for (int i = 0; i < drawerItems.size(); i++) if (drawerFocus[i].value > 0.02f && (top < 0 || drawerFocus[i].value > drawerFocus[top].value)) top = i;
         for (int i = 0; i < drawerItems.size(); i++) if (i != top) drawDrawerTile(c, i);
         if (top >= 0) drawDrawerTile(c, top);
+        drawCams(c);
         if (Prefs.weather()) drawWeatherCard(c, weatherCard);
         if (Prefs.quotes() && HomeData.active().length > 0) drawQuotesCard(c, quotesCard);
     }
@@ -1820,6 +1952,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean tilesChanged = aim(tileFocus, !sheetOpen && zone == Z_SHELF ? shelfIndex : -1, snap);
         boolean statusChanged = aim(statusFocus, !sheetOpen && zone == Z_STATUS ? statusIndex : -1, snap);
         boolean drawerChanged = aim(drawerFocus, !sheetOpen && zone == Z_DRAWER ? drawerIndex : -1, snap);
+        drawerChanged |= aim(camFocus, !sheetOpen && zone == Z_CAMS ? camIndex : -1, snap);
         boolean heroChanged = heroFocus.target != (!sheetOpen && zone == Z_HERO ? 1 : 0);
         heroFocus.target = !sheetOpen && zone == Z_HERO ? 1 : 0;
         if (snap) heroFocus.snap(heroFocus.target);
@@ -2153,7 +2286,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void back() {
         if (sheetOpen) {
             closeSheet();
-        } else if (zone == Z_DRAWER || zone == WIDGETS) {
+        } else if (zone == Z_DRAWER || zone == Z_CAMS || zone == WIDGETS) {
             closeDrawer();
             retarget(false);
         } else if (zone != Z_SHELF) {
@@ -2222,7 +2355,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 List<Integer> on = widgets();
                 int at = on.indexOf(widgetIndex);
                 if (dy < 0 || at < 0) {
-                    zone = Z_DRAWER;
+                    zone = camRects.length > 0 && dy < 0 ? Z_CAMS : Z_DRAWER;
                 } else if (dx != 0 && at + dx >= 0 && at + dx < on.size()) {
                     widgetIndex = on.get(at + dx);
                 } else {
@@ -2230,6 +2363,21 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 }
                 break;
             }
+            case Z_CAMS:
+                if (dx != 0) {
+                    int next = Math.max(0, Math.min(camRects.length - 1, camIndex + dx));
+                    if (next == camIndex) return;
+                    camIndex = next;
+                } else if (dy < 0) {
+                    zone = Z_DRAWER;
+                    drawerIndex = nearest(drawerRects, camRects[camIndex].centerX());
+                } else if (talkBack() && !widgets().isEmpty()) {
+                    zone = WIDGETS;
+                    widgetIndex = widgets().get(0);
+                } else {
+                    return;
+                }
+                break;
             default:
                 if (dx != 0) {
                     int next = Math.max(0, Math.min(drawerItems.size() - 1, drawerIndex + dx));
@@ -2237,6 +2385,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     drawerIndex = next;
                 } else if (dy < 0) {
                     closeDrawer();
+                } else if (camRects.length > 0) {
+                    zone = Z_CAMS;
+                    camIndex = nearest(camRects, drawerRects[drawerIndex].centerX());
                 } else if (talkBack() && !widgets().isEmpty()) {
                     // Only with TalkBack: the widgets are there to be read, and this is how it gets to them.
                     zone = WIDGETS;
@@ -2292,6 +2443,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         HomeApps.Item it;
         RectF r;
         if (!sheetOpen && zone == WIDGETS) return;   // a widget is only read
+        if (!sheetOpen && zone == Z_CAMS) {
+            if (camIndex >= camRects.length) return;
+            click.open();
+            openCamera(camIndex);
+            return;
+        }
         if (sheetOpen) {
             if (others.isEmpty()) return;
             it = others.get(gridIndex);
@@ -2603,6 +2760,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (featured() && currentPick() != null) out.add(a11yId(Z_HERO, 0));
         for (int i = shelfFirst; i < Math.min(shelf.size(), shelfFirst + shelfVisible); i++) out.add(a11yId(Z_SHELF, i));
         for (int i = 0; i < drawerItems.size(); i++) out.add(a11yId(Z_DRAWER, i));
+        for (int i = 0; i < camRects.length; i++) out.add(a11yId(Z_CAMS, i));
         if (drawerOpen && Prefs.weather()) out.add(a11yId(WIDGETS, 0));
         if (drawerOpen && Prefs.quotes() && HomeData.active().length > 0) out.add(a11yId(WIDGETS, 1));
     }
@@ -2625,6 +2783,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 }
                 return label(shelf, i);
             case Z_DRAWER: return label(drawerItems, i);
+            case Z_CAMS: {
+                List<CameraShots.Shot> shots = CameraShots.all();
+                if (i >= shots.size()) return "";
+                String when = CameraShots.when(shots.get(i).at);
+                return Ui.trf("{name} camera", "name", shots.get(i).name) + (when.isEmpty() ? "" : ", " + when);
+            }
             case WIDGETS: return i == 0 ? weatherText() : quotesText();
             default: return "";
         }
@@ -2672,6 +2836,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 a11yRect.set(drawerRects[i]);
                 dy = drawerOpen ? 0 : h;
                 break;
+            case Z_CAMS:
+                if (i >= camRects.length) return false;
+                a11yRect.set(camRects[i]);
+                dy = drawerOpen ? 0 : h;
+                break;
             case WIDGETS:
                 if (!drawerOpen) return false;
                 a11yRect.set(i == 0 ? weatherCard : quotesCard);
@@ -2696,6 +2865,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             case Z_HERO: return currentPick() == null ? -1 : a11yId(Z_HERO, 0);
             case Z_SHELF: return shelf.isEmpty() ? -1 : a11yId(Z_SHELF, shelfIndex);
             case Z_DRAWER: return drawerItems.isEmpty() ? -1 : a11yId(Z_DRAWER, drawerIndex);
+            case Z_CAMS: return camRects.length == 0 ? -1 : a11yId(Z_CAMS, camIndex);
             case WIDGETS: return a11yId(WIDGETS, widgetIndex);
             default: return -1;
         }
@@ -2735,6 +2905,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 if (i >= drawerItems.size()) return;
                 if (!drawerOpen) openDrawer();
                 drawerIndex = i;
+                break;
+            case Z_CAMS:
+                if (i >= camRects.length) return;
+                if (!drawerOpen) openDrawer();
+                camIndex = i;
                 break;
             case WIDGETS:
                 if (!widgets().contains(i)) return;
