@@ -3145,7 +3145,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         p.meta = HeroArt.expect(getContext(), wx);
         long now = System.currentTimeMillis();
         p.backdrop = "weather:" + new java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(new java.util.Date(now))
-                + ":" + code + ":" + wx.isDay + ":" + Math.round(wx.max) + ":" + Math.round(wx.min);
+                + ":" + code + ":" + wx.isDay + ":" + Math.round(wx.max) + ":" + Math.round(wx.min)
+                + ":" + now / 1_800_000L;   // each half hour: dawn and dusk have their own photos
         return p;
     }
 

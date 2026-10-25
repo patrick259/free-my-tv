@@ -14,9 +14,9 @@ import android.view.View;
 import java.util.Random;
 
 /**
- * The weather card's moving sky, over its still picture (HeroArt.weather) and under the hero's text, the way the iPhone's
- * Weather app does it: clouds drifting, rain falling, snow drifting down, fog rolling past, lightning flashing, the
- * sun's glow slowly turning. Only runs while the weather card is on screen (HomeView turns it on and off); everything
+ * The weather card's moving sky, over its photo (HeroArt.weather) and under the hero's text, the way the iPhone's
+ * Weather app does it: rain falling, snow drifting down, fog rolling past, lightning flashing. (Drifting clouds and a
+ * turning sun glow are here too, for a sky without its photo.) Only runs while the weather card is on screen (HomeView turns it on and off); everything
  * is drawn from a few small bitmaps and lines, so a frame stays cheap on the TV. Fainter on the left, under the text.
  */
 final class WeatherFx extends View implements Choreographer.FrameCallback {
@@ -80,7 +80,7 @@ final class WeatherFx extends View implements Choreographer.FrameCallback {
     }
 
     private static boolean needsClouds(String kind) {
-        return !kind.equals("clear") && !kind.isEmpty();
+        return kind.equals("fog");
     }
 
     private void build() {
@@ -90,7 +90,8 @@ final class WeatherFx extends View implements Choreographer.FrameCallback {
         rnd.setSeed(kind.hashCode());
 
         // Clouds (or fog banks), drawn once as soft heaps and moved.
-        int n = kind.equals("partly") ? 3 : kind.equals("fog") ? 5 : kind.equals("clear") ? 0 : 6;
+        // The sky is a photo (HeroArt.weather): only fog banks drift over it; the rest moves as rain, snow, lightning.
+        int n = kind.equals("fog") ? 5 : 0;
         int color = !day ? 0xFF4A5778 : kind.equals("partly") ? 0xFFFFFFFF : kind.equals("overcast") ? 0xFFD3D8DE
                 : kind.equals("snow") ? 0xFFE8EDF2 : kind.equals("storm") ? 0xFF3A3D50 : kind.equals("fog") ? 0xFFFFFFFF : 0xFF7A8696;
         clouds = new Bitmap[Math.min(n, 3)];
@@ -119,7 +120,7 @@ final class WeatherFx extends View implements Choreographer.FrameCallback {
             pp[i] = rnd.nextFloat() * 6.28f;
         }
         if (kind.equals("snow")) flake = dot(Math.round(24 * k));
-        rays = (kind.equals("clear") || kind.equals("partly")) && day ? rays(Math.round(1100 * k)) : null;
+        rays = null;     // the photos have their own sun
         nextFlash = SystemClock.uptimeMillis() + 2500;
         flash = 0;
     }

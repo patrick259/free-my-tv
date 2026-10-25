@@ -139,6 +139,21 @@ final class HeroArt {
         java.util.Random rnd = new java.util.Random(code * 31L + (day ? 1 : 0));
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
 
+        // A photo for the sky (assets/weather, made for this card), filling the frame; the painted sky below is the
+        // fallback when one is missing.
+        Bitmap photo = photo(ctx, photoName(kind, day, golden));
+        if (photo != null) {
+            float scale = Math.max(w / (float) photo.getWidth(), h / (float) photo.getHeight());
+            float pw = photo.getWidth() * scale, ph = photo.getHeight() * scale;
+            c.drawBitmap(photo, null, new RectF((w - pw) / 2, (h - ph) / 2, (w + pw) / 2, (h + ph) / 2), paint);
+            photo.recycle();
+            paint.setShader(new LinearGradient(0, 0, w * 0.62f, 0, new int[] {0xCC0B0B0F, 0x660B0B0F, 0x000B0B0F}, new float[] {0, 0.5f, 1},
+                    Shader.TileMode.CLAMP));
+            c.drawRect(0, 0, w, h, paint);
+            paint.setShader(null);
+            return out;
+        }
+
         // Top to horizon.
         int[] sky;
         if (!day) {
@@ -193,6 +208,22 @@ final class HeroArt {
         c.drawRect(0, 0, w, h, paint);
         paint.setShader(null);
         return out;
+    }
+
+    /** The sky photo for the forecast and the hour: dawn and dusk warm, the night's own. */
+    static String photoName(String kind, boolean day, boolean golden) {
+        if (!day) return kind + "_night";
+        if (golden && kind.equals("clear")) return "clear_golden";
+        if (golden && kind.equals("partly")) return "dusk_clouds";
+        return kind + "_day";
+    }
+
+    private static Bitmap photo(Context ctx, String name) {
+        try (java.io.InputStream in = ctx.getAssets().open("weather/" + name + ".jpg")) {
+            return android.graphics.BitmapFactory.decodeStream(in);
+        } catch (java.io.IOException e) {
+            return null;
+        }
     }
 
     /** The kind of sky for a WMO code: clear, partly, overcast, fog, rain, snow, storm. */
