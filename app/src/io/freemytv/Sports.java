@@ -12,6 +12,7 @@ import android.graphics.RectF;
 import android.graphics.Shader;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.TextUtils;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -122,6 +123,10 @@ final class Sports {
         int period, awayScore, homeScore;   // inning, quarter or period; the score
         boolean favorite;       // one of your teams
         String state, detail;   // "pre", "in", "post"; ESPN's "Top 5th", "Q3 4:12"
+        String awayAbbr, homeAbbr;      // "SF", "ATL": the scoreboard cards' short names
+        int awayRank = 99, homeRank = 99;
+        List<Game> slate;       // a scoreboard card (Sunday's NFL, Saturday's ranked college games): its games
+        String scoresTab;       // the Scores tab its button opens ("NFL", "College Football")
     }
 
     private final Context context;
@@ -129,6 +134,8 @@ final class Sports {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Runnable changed;
     private volatile List<Recs.Pick> picks = new ArrayList<>();
+    /** Today's scoreboard cards: the NFL on Sundays, the ranked college games on Saturdays. */
+    private volatile List<Recs.Pick> boards = new ArrayList<>();
     private volatile long fetchedAt;
     private volatile boolean fetching;
 
@@ -168,6 +175,8 @@ final class Sports {
         if (!Config.SHOW_SPORTS) return new ArrayList<>();
         long t = System.currentTimeMillis();
         List<Recs.Pick> out = new ArrayList<>();
+        // A scoreboard card stays all its day, the finals too.
+        for (Recs.Pick p : boards) if (sameDay(p.game.start, t)) out.add(p);
         for (Recs.Pick p : picks) {
             Game g = p.game;
             boolean live = "in".equals(g.state) || (g.start <= t && t - g.start < MAX_LIVE && !"post".equals(g.state));
@@ -193,19 +202,27 @@ final class Sports {
         fetching = true;
         io.execute(() -> {
             try {
-                List<Recs.Pick> list = new ArrayList<>();
+                List<Recs.Pick> list = new ArrayList<>(), cards = new ArrayList<>();
                 Calendar day = Calendar.getInstance();
                 String today = ymd(day);
+                int weekday = day.get(Calendar.DAY_OF_WEEK);
                 day.add(Calendar.DAY_OF_YEAR, 1);
                 String tomorrow = ymd(day);
                 for (String d : new String[] {today, tomorrow}) {
                     mlb(list, get("baseball/mlb/scoreboard?dates=" + d));
-                    teamGames(list, get("football/nfl/scoreboard?dates=" + d), "NFL", false, MAX_NFL);
-                    teamGames(list, get("football/college-football/scoreboard?dates=" + d + "&groups=80"), Ui.tr("COLLEGE FOOTBALL"), true, MAX_COLLEGE);
+                    JSONObject nfl = get("football/nfl/scoreboard?dates=" + d);
+                    teamGames(list, nfl, "NFL", false, MAX_NFL);
+                    JSONObject college = get("football/college-football/scoreboard?dates=" + d + "&groups=80");
+                    teamGames(list, college, Ui.tr("COLLEGE FOOTBALL"), true, MAX_COLLEGE);
                     teamGames(list, get("hockey/nhl/scoreboard?dates=" + d), "NHL", false, MAX_NFL);
+                    if (d.equals(today) && weekday == Calendar.SUNDAY) board(cards, nfl, "NFL", "NFL", false, d);
+                    if (d.equals(today) && weekday == Calendar.SATURDAY) {
+                        board(cards, college, Ui.tr("COLLEGE FOOTBALL"), "College Football", true, d);
+                    }
                 }
                 f1(list, get("racing/f1/scoreboard"));
                 picks = list;
+                boards = cards;
                 fetchedAt = System.currentTimeMillis();
             } catch (Exception e) {
                 AppLog.w("sports: " + e.getMessage());
@@ -382,6 +399,89 @@ final class Sports {
             if (!where.isEmpty() && a.optString("headline").toLowerCase(Locale.ROOT).contains(where)) return img.optString("url");
         }
         return any;
+    }
+
+    /** Above your teams' games and below Monday Night Football: a scoreboard card is the day's whole slate. */
+    static final int BOARD = 2800;
+    /** The most games a scoreboard card holds (three columns of five); the best-ranked ones when there are more. */
+    static final int BOARD_MAX = 15;
+
+    /**
+     * The day's scoreboard card: every game (`ranked`: those with a ranked team), each with its logos, short names, and
+     * score or start time. Live while any game is; its picture is redrawn whenever a score or a status changes.
+     */
+    private void board(List<Recs.Pick> out, JSONObject board, String league, String tab, boolean ranked, String day) throws JSONException {
+        JSONArray events = board.optJSONArray("events");
+        List<Game> slate = new ArrayList<>();
+        for (int i = 0; events != null && i < events.length(); i++) {
+            JSONObject e = events.getJSONObject(i), c = e.getJSONArray("competitions").getJSONObject(0);
+            JSONArray teams = c.getJSONArray("competitors");
+            JSONObject home = null, away = null;
+            for (int t = 0; t < teams.length(); t++) {
+                JSONObject team = teams.getJSONObject(t);
+                if ("home".equals(team.optString("homeAway"))) home = team; else away = team;
+            }
+            if (home == null || away == null) continue;
+            Game m = new Game();
+            m.id = e.optString("id");
+            m.awayAbbr = away.getJSONObject("team").optString("abbreviation");
+            m.homeAbbr = home.getJSONObject("team").optString("abbreviation");
+            m.awayLogo = away.getJSONObject("team").optString("logo", null);
+            m.homeLogo = home.getJSONObject("team").optString("logo", null);
+            m.awayScore = away.optInt("score");
+            m.homeScore = home.optInt("score");
+            m.awayRank = away.optJSONObject("curatedRank") == null ? 99 : away.getJSONObject("curatedRank").optInt("current", 99);
+            m.homeRank = home.optJSONObject("curatedRank") == null ? 99 : home.getJSONObject("curatedRank").optInt("current", 99);
+            m.favorite = favorite(away) || favorite(home);
+            if (ranked && m.awayRank > 25 && m.homeRank > 25 && !m.favorite) continue;
+            state(m, c, e.optString("date"));
+            slate.add(m);
+        }
+        if (slate.isEmpty()) return;
+        if (slate.size() > BOARD_MAX) {
+            Collections.sort(slate, (a, b) -> Integer.compare(a.favorite ? 0 : Math.min(a.awayRank, a.homeRank), b.favorite ? 0 : Math.min(b.awayRank, b.homeRank)));
+            slate = new ArrayList<>(slate.subList(0, BOARD_MAX));
+        }
+        Collections.sort(slate, (a, b) -> a.start != b.start ? Long.compare(a.start, b.start) : a.id.compareTo(b.id));
+        int live = 0, ahead = 0, done = 0;
+        long first = Long.MAX_VALUE;
+        StringBuilder sig = new StringBuilder();
+        for (Game m : slate) {
+            if ("in".equals(m.state)) live++; else if ("post".equals(m.state)) done++; else ahead++;
+            first = Math.min(first, m.start);
+            sig.append(m.id).append(m.state).append(m.detail).append(m.awayScore).append('-').append(m.homeScore);
+        }
+        Game g = new Game();
+        g.id = "board-" + tab + "-" + day;
+        g.league = league;
+        g.sport = "board";
+        g.slate = slate;
+        g.scoresTab = tab;
+        g.leagueLogo = leagueLogo(board);
+        g.start = first;
+        g.state = live > 0 ? "in" : ahead > 0 ? "pre" : "post";
+        g.detail = "";
+        g.weight = BOARD;
+        Recs.Pick p = new Recs.Pick();
+        p.kind = "board";
+        p.id = g.id.hashCode();
+        p.game = g;
+        p.pkg = context.getPackageName();
+        p.backdrop = "board:" + g.id + ":" + sig.toString().hashCode();
+        p.detailed = true;
+        p.button = Ui.tr("All Scores");
+        JSONObject week = board.optJSONObject("week");
+        String weekday = new SimpleDateFormat("EEEE", Ui.locale()).format(new java.util.Date(first));
+        p.label = (league + " · " + weekday).toUpperCase(Ui.locale());
+        p.title = week != null && week.optInt("number") > 0
+                ? Ui.trf("Week {n}", "n", week.optInt("number")) + (ranked ? " · " + Ui.tr("Ranked") : "")
+                : ranked ? Ui.tr("Ranked games") : Ui.tr("Today's games");
+        List<String> parts = new ArrayList<>();
+        if (live > 0) parts.add(Ui.trf("{n} live", "n", live));
+        if (ahead > 0) parts.add(Ui.trf("{n} to come", "n", ahead));
+        if (done > 0) parts.add(Ui.trf("{n} final", "n", done));
+        p.meta = TextUtils.join(" · ", parts);
+        out.add(p);
     }
 
     private Recs.Pick teamPick(JSONObject e, JSONObject c, String label, boolean ranks) throws JSONException {
@@ -583,6 +683,7 @@ final class Sports {
      * their logos, larger toward the viewer; for F1, the league's logo on red. Built on Recs' loader thread.
      */
     static Bitmap art(Game g, int w, int h) throws IOException {
+        if (g.slate != null) return HeroArt.board(g, w, h);
         Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(out);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
@@ -707,7 +808,7 @@ final class Sports {
         b.recycle();
     }
 
-    private static Bitmap load(String url) {
+    static Bitmap load(String url) {
         java.io.File dir = images, file = dir == null ? null : new java.io.File(dir, Integer.toHexString(url.hashCode()) + ".img");
         if (file != null && file.exists()) {
             Bitmap b = BitmapFactory.decodeFile(file.getPath());

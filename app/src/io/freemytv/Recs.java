@@ -52,6 +52,8 @@ final class Recs {
         boolean cartoon;        // an animated series (anime, cartoons): left out with hide_animated_shows=true
         String label;           // the hero's line above the title, when not "Trending on …" (a game: "WORLD SERIES · GAME 2")
         Sports.Game game;       // a game (Sports): its picture is drawn, not downloaded
+        HomeData.Weather weather;   // the weather card (HomeView): its picture is drawn too
+        String button;          // the hero's button when it isn't "Watch on …" ("All Scores", "Forecast")
         boolean detailed;
         java.io.File photo;     // one of your own photos (Photos): no title, no caption
     }
@@ -929,9 +931,10 @@ final class Recs {
         }
         File f = imageFile(p);
         try {
-            if (p.game != null) {
+            if (p.game != null || p.weather != null) {
                 boolean forLight = light, whole = featured;
-                Backdrop backdrop = Backdrop.make(Sports.art(p.game, Backdrop.W, Backdrop.H), forLight, false, whole);
+                Bitmap art = p.game != null ? Sports.art(p.game, Backdrop.W, Backdrop.H) : HeroArt.weather(context, p.weather, Backdrop.W, Backdrop.H);
+                Backdrop backdrop = Backdrop.make(art, forLight, false, whole);
                 if (forLight != light || whole != featured) return;
                 synchronized (images) {
                     images.put(p.backdrop, backdrop);

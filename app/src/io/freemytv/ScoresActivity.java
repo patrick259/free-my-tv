@@ -55,6 +55,8 @@ public class ScoresActivity extends Activity {
     };
     private static final int BG = 0xFF0B0B0F, CARD = 0xFF1C1C21, CARD_FOCUS = 0xFFF5F5F7, INK = 0xFFF5F5F7, DIM = 0xFF98989D;
     private static final long REFRESH = 30_000;
+    /** The tab to open on ("NFL", "College Football"), from the home screen's scoreboard cards. */
+    static final String EXTRA_LEAGUE = "league";
 
     private final ExecutorService io = Executors.newFixedThreadPool(3);
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -64,6 +66,7 @@ public class ScoresActivity extends Activity {
     private FrameLayout body;
     private TextView status;
     private int current = -1;
+    private String wanted;
     private boolean resumed;
     private float k;
 
@@ -90,7 +93,21 @@ public class ScoresActivity extends Activity {
         root.addView(body, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         setContentView(root);
         status.setText(Ui.tr("Loading…"));
+        wanted = getIntent().getStringExtra(EXTRA_LEAGUE);
         io.execute(this::findSeasons);
+    }
+
+    @Override protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        wanted = intent.getStringExtra(EXTRA_LEAGUE);
+        int at = wantedTab();
+        if (wanted != null && at < tabs.getChildCount()) tabs.getChildAt(at).requestFocus();
+    }
+
+    /** The tab asked for (EXTRA_LEAGUE) among those in season, else the first. */
+    private int wantedTab() {
+        for (int i = 0; wanted != null && i < inSeason.size(); i++) if (inSeason.get(i)[0].equals(wanted)) return i;
+        return 0;
     }
 
     @Override protected void onResume() {
@@ -146,7 +163,7 @@ public class ScoresActivity extends Activity {
             inSeason.addAll(found);
             buildTabs();
             if (inSeason.isEmpty()) status.setText(Ui.tr("No league in season right now (or no connection)."));
-            else select(0);
+            else select(wantedTab());
         });
     }
 
@@ -164,7 +181,7 @@ public class ScoresActivity extends Activity {
             lp.setMarginEnd(px(10));
             tabs.addView(tab, lp);
         }
-        if (tabs.getChildCount() > 0) tabs.getChildAt(0).requestFocus();
+        if (tabs.getChildCount() > 0) tabs.getChildAt(wantedTab()).requestFocus();
     }
 
     /** The selected tab white (dark text), focused or not; the others plain. */

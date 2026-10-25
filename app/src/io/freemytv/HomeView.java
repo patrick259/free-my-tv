@@ -630,8 +630,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lCardTitle.setLetterSpacing(0.012f);
         lCardMeta = Ui.text(Ui.medium, 25 * k, L_DIM);
         lQuote = Ui.numbers(Ui.regular, 21 * k, L_FAINT);
-        lTip = Ui.text(Ui.semibold, 25 * k, L_INK);
+        // The focused top button's name: white like the button, with a shade so it reads on any picture.
+        lTip = Ui.text(Ui.semibold, 25 * k, WHITE);
         lTip.setTextAlign(Paint.Align.CENTER);
+        lTip.setShadowLayer(14 * k, 0, 1 * k, 0xB3000000);
         lDate = Ui.text(Ui.semibold, 34 * k, L_DIM);
         lClock = Ui.numbers(Ui.light, 200 * k, L_INK);
         lClock.setLetterSpacing(-0.01f);
@@ -1006,7 +1008,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lCardTitle.setColor(tone(L_INK, WHITE));
         lCardMeta.setColor(tone(L_DIM, 0xFF98989D));
         lQuote.setColor(tone(L_FAINT, 0xB8FFFFFF));
-        lTip.setColor(tone(L_INK, WHITE));
+        lTip.setColor(WHITE);
         lDate.setColor(tone(L_DIM, 0xFF98989D));
         lClock.setColor(tone(L_INK, WHITE));
         lWeather.setColor(tone(L_DIM, 0xFF98989D));
@@ -2456,6 +2458,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         } else if (zone == Z_HERO) {
             Recs.Pick p = currentPick();
             if (p == null || p.pkg == null) return;
+            if (heroOwn(p)) return;
             it = HomeApps.app(p.pkg, Recs.serviceName(p), p.link);
             r = heroButton;
         } else if (zone == Z_STATUS) {
@@ -2476,6 +2479,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         } else if (zone == Z_CARDS) {
             Recs.Pick p = cardIndex < cards.size() ? cards.get(cardIndex) : null;
             if (p == null || p.pkg == null) return;
+            if (heroOwn(p)) return;
             it = HomeApps.app(p.pkg, Recs.serviceName(p), p.link);
             r = cardRects[cardIndex];
         } else {
@@ -2502,6 +2506,29 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean opened = HomeApps.open(activity, it, this, Math.round(r.left), Math.round(r.top),
                 Math.round(r.width()), Math.round(r.height()));
         if (!opened) showToast(Ui.trf("Couldn't open {app}.", "app", it.label));
+    }
+
+    /** Our own hero cards' buttons: a scoreboard card opens Scores on its league, the weather card the drawer. */
+    private boolean heroOwn(Recs.Pick p) {
+        if ("board".equals(p.kind) && p.game != null) {
+            click.open();
+            android.content.Intent i = new android.content.Intent(getContext(), ScoresActivity.class)
+                    .putExtra(ScoresActivity.EXTRA_LEAGUE, p.game.scoresTab)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            try {
+                activity.startActivity(i);
+            } catch (RuntimeException e) {
+                showToast(Ui.trf("Couldn't open {app}.", "app", Ui.tr("Scores")));
+            }
+            return true;
+        }
+        if ("weather".equals(p.kind)) {
+            click.open();
+            openDrawer();
+            retarget(false);
+            return true;
+        }
+        return false;
     }
 
     // MARK: - Holding OK: All Apps puts the app on the shelf or takes it off; on the shelf, the app is lifted to move
@@ -3060,6 +3087,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (g < games.size()) list.add(games.get(g++));
             if (m < shows.size()) list.add(shows.get(m++));
         }
+        // Today's weather, fourth (after the day's first games and shows).
+        Recs.Pick weather = weatherPick();
+        if (weather != null) list.add(Math.min(3, list.size()), weather);
         if (!samePicks(list, picks)) {
             // A new list starts over at its first pick (F1, a live game), unless you're on Watch: then you keep yours.
             Recs.Pick was = zone == Z_HERO ? currentPick() : null;
@@ -3075,6 +3105,32 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         // Always Recs' own objects: a refetch makes new ones, and the details and links arrive on those.
         picks = list;
         showFeatured();
+    }
+
+    /**
+     * The weather card: today as a hero pick, its picture drawn (HeroArt: a sky for the forecast, the high and low). Its
+     * key changes with the day, the sky and the high and low; Forecast opens the drawer, where the hour by hour is.
+     */
+    private Recs.Pick weatherPick() {
+        HomeData.Weather wx = data.weather;
+        if (!Prefs.weather() || wx == null || Double.isNaN(wx.temp) || wx.hours.isEmpty()) return null;
+        Recs.Pick p = new Recs.Pick();
+        p.kind = "weather";
+        p.id = 1;
+        p.weather = wx;
+        p.pkg = getContext().getPackageName();
+        p.button = Ui.tr("Forecast");
+        p.detailed = true;
+        // The day, not the hour: its sky in words, and what to expect (HeroArt draws the scene and the high and low).
+        int code = wx.dayCode.isEmpty() ? wx.code : wx.dayCode.get(0);
+        String city = Config.CITY.isEmpty() ? "" : " · " + Config.CITY;
+        p.label = (Ui.tr("Today") + city).toUpperCase(Ui.locale());
+        p.title = HomeData.condition(code, true);
+        p.meta = HeroArt.expect(getContext(), wx);
+        long now = System.currentTimeMillis();
+        p.backdrop = "weather:" + new java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(new java.util.Date(now))
+                + ":" + code + ":" + wx.isDay + ":" + Math.round(wx.max) + ":" + Math.round(wx.min);
+        return p;
     }
 
     /** The current pick's photo (once it is ready; Recs notifies) and its neighbors' loading, for ← and →. */
@@ -3381,7 +3437,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void drawFeaturedButton(Canvas c, Recs.Pick p, String app, float x, float y) {
         float dotsX = x, dotsY = y + F_BUTTON_H * k / 2;
         if (p.pkg != null) {
-            String watch = app == null || app.isEmpty() ? Ui.tr("Watch") : Ui.trf("Watch on {app}", "app", app);
+            String watch = p.button != null ? p.button : app == null || app.isEmpty() ? Ui.tr("Watch") : Ui.trf("Watch on {app}", "app", app);
             float f = Ui.clamp(heroFocus.value), s = 1 + 0.06f * f;
             float bw = buttonPaint.measureText(watch) + 2 * F_BUTTON_PAD * k, bh = F_BUTTON_H * k;
             heroButton.set(x, y, x + bw, y + bh);

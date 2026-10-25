@@ -130,6 +130,9 @@ final class HomeData {
         final List<Double> hourTemp = new ArrayList<>();
         final List<Integer> hourCode = new ArrayList<>();
         final List<Boolean> hourDay = new ArrayList<>();
+        // The rest of today, hour by hour (time and code): the weather card's "rain later" (HeroArt.expect).
+        final List<Long> laterAt = new ArrayList<>();
+        final List<Integer> laterCode = new ArrayList<>();
         // Days, today first (up to 6): noon of the day, high, low, code, chance of rain (%, or -1 unknown).
         final List<Long> days = new ArrayList<>();
         final List<Double> dayMax = new ArrayList<>(), dayMin = new ArrayList<>();
@@ -289,9 +292,17 @@ final class HomeData {
             JSONArray codes = hourly.getJSONArray("weather_code");
             JSONArray days = hourly.optJSONArray("is_day");
             long now = System.currentTimeMillis();
-            for (int i = 0; i < times.length() && w.hours.size() < 6; i++) {
+            java.util.Calendar today = java.util.Calendar.getInstance(zone), hour = java.util.Calendar.getInstance(zone);
+            today.setTimeInMillis(now);
+            for (int i = 0; i < times.length(); i++) {
                 long at = localTime(times.getString(i), zone);
                 if (at <= now) continue;
+                hour.setTimeInMillis(at);
+                if (hour.get(java.util.Calendar.DAY_OF_YEAR) == today.get(java.util.Calendar.DAY_OF_YEAR)) {
+                    w.laterAt.add(at);
+                    w.laterCode.add(codes.getInt(i));
+                }
+                if (w.hours.size() >= 6) continue;
                 w.hours.add(at);
                 w.hourTemp.add(temps.getDouble(i));
                 w.hourCode.add(codes.getInt(i));
