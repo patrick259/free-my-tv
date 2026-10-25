@@ -280,6 +280,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private String textLanguage;
     private String weatherTitle, nowTemp, highLow, sunriseText, sunsetText, staleText;
     private final String[] hourText = new String[6], hourTempText = new String[6];
+    private final String[] dayText = new String[6], dayTempText = new String[6], dayLowText = new String[6],
+            dayRainText = new String[6];
     private final String[] priceText = new String[HomeData.COINS.length], changeText = new String[HomeData.COINS.length];
 
     /** What the hero shows: a recommendation or, without any, the date, the time and the weather. */
@@ -1667,7 +1669,23 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         fill.setShader(null);
         fill.setColor(tone(0x1A000000, 0x24FFFFFF));
         c.drawRoundRect(split - k, r.top + 34 * k, split + k, r.bottom - 34 * k, k, k, fill);
-        float hx = split + 30 * k, hw = (r.right - 30 * k - hx) / 6;
+        // Next hours on the left of the rest, the next five days on its right.
+        boolean week = wx.days.size() >= 6 && wx.dayCode.get(1) >= 0;
+        float split2 = week ? split + (r.right - split) * 0.54f : r.right;
+        float hx = split + 30 * k, hw = (split2 - 30 * k - hx) / 6;
+        if (week) {
+            fill.setColor(tone(0x1A000000, 0x24FFFFFF));
+            c.drawRoundRect(split2 - k, r.top + 34 * k, split2 + k, r.bottom - 34 * k, k, k, fill);
+            float dx = split2 + 26 * k, dw = (r.right - 26 * k - dx) / 5;
+            for (int d = 1; d <= 5; d++) {
+                float dc = dx + dw * (d - 0.5f);
+                c.drawText(dayText[d], dc, r.top + 96 * k, hourPaint);
+                Symbols.draw(getContext(), c, Symbols.weather(wx.dayCode.get(d), true), dc, r.top + 142 * k, 30 * k, drawerInk(0.9f));
+                c.drawText(dayTempText[d], dc, r.top + 196 * k, hourTemp);     // high
+                c.drawText(dayLowText[d], dc, r.top + 234 * k, hourPaint);     // low
+                if (wx.dayRain.get(d) >= 20) c.drawText(dayRainText[d], dc, r.top + 268 * k, hourPaint);
+            }
+        }
         for (int i = 0; i < wx.hours.size() && i < 6; i++) {
             float hc = hx + hw * (i + 0.5f);
             c.drawText(hourText[i], hc, r.top + 96 * k, hourPaint);
@@ -1692,6 +1710,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             for (int i = 0; i < wx.hours.size() && i < 6; i++) {
                 hourText[i] = HomeData.hour(wx.hours.get(i));
                 hourTempText[i] = HomeData.degrees(wx.hourTemp.get(i));
+            }
+            for (int d = 0; d < wx.days.size() && d < 6; d++) {
+                dayText[d] = d == 0 ? Ui.tr("Today") : HomeData.weekday(wx.days.get(d));
+                dayTempText[d] = HomeData.degrees(wx.dayMax.get(d));
+                dayLowText[d] = HomeData.degrees(wx.dayMin.get(d));
+                dayRainText[d] = Ui.trf("{p}% rain", "p", wx.dayRain.get(d));
             }
             sunriseText = Ui.trf("Sunrise {time}", "time", Ui.time(wx.sunrise));
             sunsetText = Ui.trf("Sunset {time}", "time", Ui.time(wx.sunset));
@@ -3078,7 +3102,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             String symbol = Symbols.weather(wx.code, wx.isDay);
             float sw = Symbols.width(getContext(), symbol, size);
             Symbols.draw(getContext(), c, symbol, tx + sw / 2, base - Ui.halfCap(metaPaint), size, 0xD1FFFFFF);
-            text(c, HomeData.degrees(wx.temp) + "  " + HomeData.condition(wx.code, wx.isDay), tx + sw + 12 * k, base, metaPaint, 0xD1FFFFFF, 1);
+            String now = HomeData.degrees(wx.temp) + "  " + HomeData.condition(wx.code, wx.isDay);
+            float nx = tx + sw + 12 * k;
+            text(c, now, nx, base, metaPaint, 0xD1FFFFFF, 1);
+            // The day ahead: today's forecast in the morning, tomorrow's in the evening.
+            String outlook = HomeData.outlook(wx, System.currentTimeMillis());
+            if (!outlook.isEmpty()) text(c, "·   " + outlook, nx + metaPaint.measureText(now) + 18 * k, base, metaPaint, 0xB3FFFFFF, 1);
         }
 
         Recs.Pick p = currentPick();

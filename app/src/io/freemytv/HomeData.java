@@ -43,8 +43,9 @@ final class HomeData {
     private static String quote() {
         return CURRENCY.equals("USD") || inDollars ? "USDT" : CURRENCY;
     }
-    private static final String WEATHER_QUERY = "&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset"
-            + "&hourly=temperature_2m,weather_code,is_day&timezone=auto&forecast_days=2";
+    private static final String WEATHER_QUERY = "&current=temperature_2m,weather_code,is_day"
+            + "&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset,weather_code,precipitation_probability_max"
+            + "&hourly=temperature_2m,weather_code,is_day&timezone=auto&forecast_days=6";
 
     private static String weatherPlace() {
         return Prefs.latitude() + "," + Prefs.longitude();
@@ -129,6 +130,10 @@ final class HomeData {
         final List<Double> hourTemp = new ArrayList<>();
         final List<Integer> hourCode = new ArrayList<>();
         final List<Boolean> hourDay = new ArrayList<>();
+        // Days, today first (up to 6): noon of the day, high, low, code, chance of rain (%, or -1 unknown).
+        final List<Long> days = new ArrayList<>();
+        final List<Double> dayMax = new ArrayList<>(), dayMin = new ArrayList<>();
+        final List<Integer> dayCode = new ArrayList<>(), dayRain = new ArrayList<>();
     }
 
     private static HomeData instance;
@@ -163,8 +168,9 @@ final class HomeData {
                 pricesAt = cache.getLong("pricesAt", 0);
             }
             String w = cache.getString("weather", null);
-            // The cached forecast is for the city it was fetched for; another city means fetch again.
-            if (w != null && weatherPlace().equals(cache.getString("weatherPlace", ""))) {
+            // The cached forecast is for the city it was fetched for; another city means fetch again (and so does one
+            // from before the 5-day forecast).
+            if (w != null && w.contains("precipitation_probability_max") && weatherPlace().equals(cache.getString("weatherPlace", ""))) {
                 weather = parseWeather(w);
                 weatherAt = cache.getLong("weatherAt", 0);
                 weatherFor = weatherPlace();
@@ -267,6 +273,15 @@ final class HomeData {
         w.min = daily.getJSONArray("temperature_2m_min").getDouble(0);
         w.sunrise = localTime(daily.getJSONArray("sunrise").getString(0), zone);
         w.sunset = localTime(daily.getJSONArray("sunset").getString(0), zone);
+        JSONArray dates = daily.optJSONArray("time"), codes0 = daily.optJSONArray("weather_code"),
+                rain = daily.optJSONArray("precipitation_probability_max");
+        for (int i = 0; dates != null && i < dates.length(); i++) {
+            w.days.add(localTime(dates.getString(i) + "T12:00", zone));
+            w.dayMax.add(daily.getJSONArray("temperature_2m_max").optDouble(i));
+            w.dayMin.add(daily.getJSONArray("temperature_2m_min").optDouble(i));
+            w.dayCode.add(codes0 == null ? -1 : codes0.optInt(i, -1));
+            w.dayRain.add(rain == null || rain.isNull(i) ? -1 : rain.optInt(i, -1));
+        }
         JSONObject hourly = o.optJSONObject("hourly");
         if (hourly != null) {
             JSONArray times = hourly.getJSONArray("time");
@@ -422,6 +437,30 @@ final class HomeData {
     }
 
     /** Celsius or Fahrenheit (config.properties "temperature": C, F, or auto = Fahrenheit in the US). */
+    /**
+     * The hero's forecast: in the morning today's ("Today: Sunny, 74° / 52°"), in the evening tomorrow's, with the
+     * chance of rain from 30%; empty around midday or without a forecast.
+     */
+    static String outlook(Weather wx, long now) {
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        cal.setTimeInMillis(now);
+        int hour = cal.get(java.util.Calendar.HOUR_OF_DAY);
+        boolean morning = hour >= 4 && hour < 12, evening = hour >= 17 || hour < 4;
+        if (!morning && !evening) return "";
+        // After midnight "tomorrow" is the day that just started.
+        int day = morning ? 0 : (hour < 4 ? 0 : 1);
+        if (wx.days.size() <= day || wx.dayCode.get(day) < 0) return "";
+        String when = morning || hour < 4 ? Ui.tr("Today") : Ui.tr("Tomorrow");
+        int rain = wx.dayRain.get(day);
+        return when + ": " + condition(wx.dayCode.get(day), true) + ", " + degrees(wx.dayMax.get(day)) + " / "
+                + degrees(wx.dayMin.get(day)) + (rain >= 30 ? ", " + Ui.trf("{p}% rain", "p", rain) : "");
+    }
+
+    /** "Sun", "Mon"…: a day of the forecast. */
+    static String weekday(long at) {
+        return new java.text.SimpleDateFormat("EEE", Ui.locale()).format(new java.util.Date(at));
+    }
+
     static String degrees(double v) {
         if (Double.isNaN(v)) return "—";
         return Math.round(fahrenheit() ? v * 9 / 5 + 32 : v) + "°";
