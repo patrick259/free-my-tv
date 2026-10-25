@@ -3506,26 +3506,32 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      * The round buttons (Live TV, HDMI Inputs and Settings by default): icon-only glass circles (light by day, smoked at
      * night); the focused one turns white with a dark icon (the tvOS focus) and its name appears below it.
      */
+    /** How much of the top-right buttons' glass shows while they aren't focused. */
+    private static final float TOP_REST = 0.35f;
+
     private void drawLightButtons(Canvas c) {
         applyTone();
         for (int i = 0; i < lightButtons.size(); i++) {
             HomeApps.Item it = lightButtons.get(i);
             RectF r = topRects[3 + i];
             float f = Ui.clamp(topFocus[3 + i].value), s = 1 + 0.1f * f, rad = r.width() / 2 * s;
+            // Faint at rest, so they don't stand out on the picture; whole once focused.
+            float seen = TOP_REST + (1 - TOP_REST) * f;
             cell.set(r.centerX() - rad, r.centerY() - rad, r.centerX() + rad, r.centerY() + rad);
             tmp.set(cell);
             tmp.offset(0, (6 + 8 * f) * k);
-            shadow.setColor(Ui.alpha(0xFF000000, tone(0.1f, 0.3f) + tone(0.14f, 0.2f) * f));
+            shadow.setColor(Ui.alpha(0xFF000000, (tone(0.1f, 0.3f) + tone(0.14f, 0.2f) * f) * seen));
             shadows.draw(c, tmp, rad, SHADOW_BLUR * k, shadow);
             scene.liquid(c, cell, rad, tone(0xFFFFFFFF, SMOKE), tone(0.55f, 0.5f), tone(0.02f, 0.01f), 12 * k, 8 * k,
-                    tone(0.6f, 0.45f), 1 - f);
+                    tone(0.6f, 0.45f), (1 - f) * TOP_REST);
             if (f > 0.01f) {
                 fill.setShader(null);
                 fill.setColor(Ui.alpha(0xFFFFFFFF, f));
                 c.drawCircle(cell.centerX(), cell.centerY(), rad, fill);
             }
+            int ink = blend(tone(L_INK, 0xEBFFFFFF), L_INK, f);
             Symbols.draw(getContext(), c, it.symbol, cell.centerX(), cell.centerY(), 27 * k * s,
-                    blend(tone(L_INK, 0xEBFFFFFF), L_INK, f));
+                    Ui.alpha(ink, 0.55f + 0.45f * f));
             if (f > 0.01f) {
                 String label = it.label;
                 float half = lTip.measureText(label) / 2;
