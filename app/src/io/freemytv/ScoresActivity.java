@@ -244,11 +244,25 @@ public class ScoresActivity extends Activity {
         if (index != current || isFinishing()) return;
         // A refresh keeps the scroll position (and the focus, when it was on a card) where it was.
         int scroll = !first && body.getChildCount() > 0 && body.getChildAt(0) instanceof ScrollView ? body.getChildAt(0).getScrollY() : 0;
+        // Removing the focused card would hand focus to the first tab (F1), which switches to it: park it on this
+        // league's tab (no switch), then put it back on the same card.
+        View focused = getCurrentFocus();
+        int at = !first && focused != null && focused != body && isInside(focused, body) ? body.getFocusables(View.FOCUS_FORWARD).indexOf(focused) : -1;
+        if (at >= 0 && current < tabs.getChildCount()) tabs.getChildAt(current).requestFocus();
         body.removeAllViews();
         body.addView(view);
         if (scroll > 0) view.post(() -> view.scrollTo(0, scroll));
+        if (at >= 0) view.post(() -> {
+            List<View> again = view.getFocusables(View.FOCUS_FORWARD);
+            if (at < again.size()) again.get(at).requestFocus();
+        });
         String time = android.text.format.DateFormat.getTimeFormat(this).format(new java.util.Date());
         status.setText(Ui.trf("Updated {time} · ESPN", "time", time));
+    }
+
+    private static boolean isInside(View v, View parent) {
+        for (android.view.ViewParent p = v.getParent(); p != null; p = p.getParent()) if (p == parent) return true;
+        return false;
     }
 
     // MARK: - Team leagues: game cards
@@ -257,6 +271,8 @@ public class ScoresActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
         scroll.setClipToPadding(false);
+        // Room around the cards for the focused one (3% larger, with its white border) inside the scroll's edges.
+        scroll.setPadding(px(16), px(16), px(16), px(16));
         GridLayout grid = new GridLayout(this);
         int columns = poll == null ? 3 : 2, pollW = px(540);
         grid.setColumnCount(columns);
@@ -267,8 +283,8 @@ public class ScoresActivity extends Activity {
             int sa = order(a), sb = order(b);
             return sa != sb ? Integer.compare(sa, sb) : a.optString("date").compareTo(b.optString("date"));
         });
-        int width = getResources().getDisplayMetrics().widthPixels - px(160) - (poll == null ? 0 : pollW + px(8));
-        int cardW = (width - (columns - 1) * px(24)) / columns;
+        int width = getResources().getDisplayMetrics().widthPixels - px(160) - px(32) - (poll == null ? 0 : pollW + px(8));
+        int cardW = (width - columns * px(24)) / columns;     // each card keeps a 24 gap on its right, the last too
         for (JSONObject e : events) {
             View card = card(e);
             if (card == null) continue;
