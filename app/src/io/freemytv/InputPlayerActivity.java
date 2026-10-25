@@ -9,6 +9,7 @@ import android.media.tv.TvView;
 import android.os.Bundle;
 import android.os.PowerManager;
 import android.view.KeyEvent;
+import android.view.WindowManager;
 
 /**
  * An HDMI input, full screen (Fire TV). The only app there that answers the standard request for an input is Amazon's
@@ -39,6 +40,9 @@ public class InputPlayerActivity extends Activity {
             @Override public void onVideoAvailable(String inputId) { tv.setStreamVolume(1f); }
         });
         setContentView(tv);
+        // Watching a box on HDMI presses no Fire TV buttons: without this the screensaver comes on over the show
+        // after the screen-off timeout (5 min). Amazon's own input player keeps the screen on the same way.
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         audio = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         tune();
     }

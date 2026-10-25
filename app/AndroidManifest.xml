@@ -157,6 +157,23 @@
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density|fontScale|locale|layoutDirection"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
 
+        <!-- The sleep timer's picker (SleepTimer): a card over the home screen. -->
+        <activity
+            android:name=".SleepTimerActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density|fontScale|locale|layoutDirection"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar.Fullscreen" />
+
+        <!-- The sleep timer's alarms, in RemoteKeyService's process: it shows the last-minute card and puts the TV to
+             sleep. Exported only to callers holding DUMP (adb's shell), for a short test timer. -->
+        <receiver
+            android:name=".SleepTimer$Receiver"
+            android:process=":keys"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+
         <!-- Fire TV: an HDMI input full screen (Amazon's Live TV doesn't switch to one when asked). -->
         <activity
             android:name=".InputPlayerActivity"

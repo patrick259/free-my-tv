@@ -19,7 +19,7 @@ import android.view.accessibility.AccessibilityEvent;
  * Fire OS 7 handles Home before the key filter (it never reaches onKeyEvent), and Home holds app starts back for
  * about 5 s (stopAppSwitches), so ours comes up that long after Amazon's. At power-on it leaves the TV to come back
  * to its last input first (PowerOn), and while you're in Fire TV's settings (a page of Amazon's home screen:
- * FireSettings) it waits for Home. It also shows the game alerts (GameAlerts).
+ * FireSettings) it waits for Home. It also shows the game alerts (GameAlerts) and runs the sleep timer (SleepTimer).
  */
 public class RemoteKeyService extends AccessibilityService {
     /** Window-state events come in bursts: one redirect per burst. */
@@ -32,8 +32,14 @@ public class RemoteKeyService extends AccessibilityService {
         }
     };
 
+    /** The service while it's connected: the sleep timer's alarms reach it through this (SleepTimer.Receiver). */
+    static volatile RemoteKeyService running;
+
     /** Banners over any app for the games you'd want to know about (GameAlerts). */
     private final GameAlerts alerts = new GameAlerts(this);
+
+    /** The sleep timer's last-minute card, and standby (SleepTimer). */
+    final SleepTimer.Warning sleepWarning = new SleepTimer.Warning(this);
 
     /** Every Home press, also where no window changes (Amazon's home screen already in front). */
     private final HomeWatcher homeWatcher = new HomeWatcher(this, () -> {
@@ -43,6 +49,7 @@ public class RemoteKeyService extends AccessibilityService {
 
     @Override protected void onServiceConnected() {
         super.onServiceConnected();
+        running = this;
         registerReceiver(screenOn, new IntentFilter(Intent.ACTION_SCREEN_ON));
         if (HomeMode.AMAZON) {
             homeWatcher.start();
@@ -53,6 +60,8 @@ public class RemoteKeyService extends AccessibilityService {
     }
 
     @Override public void onDestroy() {
+        if (running == this) running = null;
+        sleepWarning.hide();
         homeWatcher.stop();
         alerts.stop();
         try {

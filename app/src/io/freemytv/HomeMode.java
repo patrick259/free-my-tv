@@ -465,7 +465,7 @@ final class HomeMode {
     }
 
     /** Our accessibility service is on (readable without ADB). */
-    private static boolean remoteServiceEnabled(Context c) {
+    static boolean remoteServiceEnabled(Context c) {
         ContentResolver r = c.getContentResolver();
         String list = Settings.Secure.getString(r, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
         return Settings.Secure.getInt(r, Settings.Secure.ACCESSIBILITY_ENABLED, 0) == 1
