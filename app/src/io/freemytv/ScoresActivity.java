@@ -42,7 +42,7 @@ import java.util.concurrent.Executors;
  * league (← →); for F1 the race weekend (circuit map, countdown, sessions and winners), the drivers with their team
  * colors and flags, and the constructors as bars; for the others today's and
  * tomorrow's games (logos, score, status, network), your teams (favorite_teams) first with a star; in college football
- * the games with a ranked team or one of yours. Live scores refresh every 30 s. Back comes home.
+ * the games with a ranked team or one of yours. OK on a game (or an F1 session) opens its details (GameActivity). Live scores refresh every 30 s. Back comes home.
  */
 public class ScoresActivity extends Activity {
     /** {tab name, ESPN path}: the order of the tabs (F1 first). */
@@ -157,6 +157,7 @@ public class ScoresActivity extends Activity {
             TextView tab = text(inSeason.get(i)[0], 28, INK, Ui.semibold);
             tab.setPadding(px(26), px(10), px(26), px(10));
             tab.setFocusable(true);
+            tab.setFocusableInTouchMode(true);     // keeps focus if Fire OS switches to touch mode (else the next arrow is eaten)
             tab.setOnFocusChangeListener((v, has) -> { if (has) select(index); style(); });
             tab.setOnClickListener(v -> select(index));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -212,7 +213,7 @@ public class ScoresActivity extends Activity {
                         JSONArray e = Sports.get(league[1] + "/scoreboard").optJSONArray("events");
                         for (int i = 0; e != null && i < e.length(); i++) events.add(e.getJSONObject(i));
                     }
-                    main.post(() -> show(index, games(events), first));
+                    main.post(() -> show(index, games(events, league[1]), first));
                 }
             } catch (Exception e) {
                 AppLog.w("scores " + league[0] + ": " + e.getMessage());
@@ -234,7 +235,7 @@ public class ScoresActivity extends Activity {
 
     // MARK: - Team leagues: game cards
 
-    private View games(List<JSONObject> events) {
+    private View games(List<JSONObject> events, String path) {
         ScrollView scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
         scroll.setClipToPadding(false);
@@ -251,6 +252,7 @@ public class ScoresActivity extends Activity {
         for (JSONObject e : events) {
             View card = card(e);
             if (card == null) continue;
+            card.setOnClickListener(v -> startActivity(GameActivity.intent(this, path, e.optString("id"), -1)));
             GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
             lp.width = cardW;
             lp.setMargins(0, 0, px(24), px(24));
@@ -304,6 +306,7 @@ public class ScoresActivity extends Activity {
             card.setOrientation(LinearLayout.VERTICAL);
             card.setPadding(px(24), px(20), px(24), px(20));
             card.setFocusable(true);
+            card.setFocusableInTouchMode(true);     // keeps focus if Fire OS switches to touch mode (else the next arrow is eaten)
             card.setBackground(round(CARD));
             card.setOnFocusChangeListener((v, has) -> {
                 v.setBackground(round(has ? 0xFF2C2C33 : CARD));
@@ -385,6 +388,8 @@ public class ScoresActivity extends Activity {
         {"Williams", "64C4FF"}, {"Haas", "B6BABD"}, {"Red Bull", "3671C6"}, {"Aston Martin", "229971"},
     };
     private static final int F1_RED = 0xFFE10600;
+    /** The F1 weekend card's next session row (its view id). */
+    private int f1Session = View.NO_ID;
 
     private View f1(JSONObject board, JSONObject standings) {
         // Team colors by name (ESPN's constructors, with our overrides).
@@ -473,7 +478,15 @@ public class ScoresActivity extends Activity {
             bl.setMargins(0, px(24), 0, px(16));
             card.addView(box, bl);
         }
-        for (int i = 0; sessions != null && i < sessions.length(); i++) card.addView(session(sessions.optJSONObject(i), sessions.optJSONObject(i) == next));
+        f1Session = View.generateViewId();
+        for (int i = 0; sessions != null && i < sessions.length(); i++) {
+            View row = session(sessions.optJSONObject(i), sessions.optJSONObject(i) == next);
+            // The next session (else the last): where ↓ from the F1 tab and ← from the tables land.
+            if (sessions.optJSONObject(i) == next || (next == null && i == sessions.length() - 1)) row.setId(f1Session);
+            final int index = i;
+            row.setOnClickListener(v -> startActivity(GameActivity.intent(this, "racing/f1", race.optString("id"), index)));
+            card.addView(row);
+        }
         return card;
     }
 
@@ -484,6 +497,7 @@ public class ScoresActivity extends Activity {
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(px(4), px(9), px(4), px(9));
         row.setFocusable(true);
+        row.setFocusableInTouchMode(true);     // keeps focus if Fire OS switches to touch mode (else the next arrow is eaten)
         row.setOnFocusChangeListener((v, has) -> v.setBackground(has ? round(0x33FFFFFF) : null));
         View dot = new View(this);
         GradientDrawable d = new GradientDrawable();
@@ -526,9 +540,11 @@ public class ScoresActivity extends Activity {
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(px(16), px(10), px(20), px(10));
             row.setFocusable(true);
+            row.setFocusableInTouchMode(true);     // keeps focus if Fire OS switches to touch mode (else the next arrow is eaten)
             final int bg = i == 0 ? 0xFF26262C : 0;
             row.setBackground(bg == 0 ? null : round(bg));
-            row.setOnFocusChangeListener((v, has) -> v.setBackground(has ? round(0xFF34343C) : bg == 0 ? null : round(bg)));
+            row.setOnFocusChangeListener((v, has) -> v.setBackground(has ? round(0xFF4A4A54) : bg == 0 ? null : round(bg)));
+            row.setNextFocusLeftId(f1Session);
             TextView rank = text(stat(entry, "rank"), 24, DIM, Ui.semibold);
             rank.setGravity(Gravity.END);
             row.addView(rank, new LinearLayout.LayoutParams(px(40), ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -574,7 +590,8 @@ public class ScoresActivity extends Activity {
             row.setOrientation(LinearLayout.VERTICAL);
             row.setPadding(px(16), px(8), px(16), px(8));
             row.setFocusable(true);
-            row.setOnFocusChangeListener((v, has) -> v.setBackground(has ? round(0xFF34343C) : null));
+            row.setFocusableInTouchMode(true);     // keeps focus if Fire OS switches to touch mode (else the next arrow is eaten)
+            row.setOnFocusChangeListener((v, has) -> v.setBackground(has ? round(0xFF4A4A54) : null));
             LinearLayout line = new LinearLayout(this);
             TextView n = text(team, 24, INK, Ui.medium);
             line.addView(n, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
@@ -794,6 +811,12 @@ public class ScoresActivity extends Activity {
     }
 
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
+        // ↓ from the F1 tab: its weekend (the next session), not the standings beside it.
+        if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && getCurrentFocus() != null && getCurrentFocus().getParent() == tabs
+                && current >= 0 && "F1".equals(inSeason.get(current)[0])) {
+            View s = body.findViewById(f1Session);
+            if (s != null && s.requestFocus()) return true;
+        }
         // From the cards, ↑ past the first row goes back to the tabs (on the selected one).
         if (keyCode == KeyEvent.KEYCODE_DPAD_UP && getCurrentFocus() != null && getCurrentFocus().getParent() != tabs
                 && getCurrentFocus().focusSearch(View.FOCUS_UP) == null && current >= 0 && current < tabs.getChildCount()) {

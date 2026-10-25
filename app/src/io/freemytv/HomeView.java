@@ -376,6 +376,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         launcherApps = (LauncherApps) a.getSystemService(Context.LAUNCHER_APPS_SERVICE);
         if (launcherApps != null) launcherApps.registerCallback(packages, handler);
         setFocusable(true);
+        setFocusableInTouchMode(true);     // keeps focus if Fire OS switches to touch mode (else the next arrow is eaten)
         sky = new Layer(a, SKY);
         heroLayer = new Layer(a, HERO);
         status = new Layer(a, STATUS);

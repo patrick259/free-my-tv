@@ -26,8 +26,8 @@ Open items for the Insignia Fire TV build (branch `wip/fire-home-redirect`). New
       "TV" button sends Home.
 - [ ] Cover the ~5 s Home-button wait with a snapshot of the home screen (accessibility overlay, as Home on Fire
       does), swallowing presses while it's up.
-- [ ] Sometimes the first ←/→ after ↑ doesn't register (home screen and Scores page). Works with adb key presses
-      (which skip the accessibility key filter), so it needs a real-remote repro: note when it happens.
+- [x] The first arrow press sometimes didn't register (home screen, Scores): Fire OS switches windows to touch mode,
+      and leaving it ate the press when the focused view wasn't focusable in touch mode. Now they all are.
 - [x] Home on Amazon's own home screen (after an update, or in Fire TV's settings, which are a page of it) did
       nothing. `HomeWatcher` now sees every Home press in the system log (READ_LOGS, granted by the install script).
 - [x] TV Settings opens Fire TV's settings and stays there until Home (`FireSettings`).
