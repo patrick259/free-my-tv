@@ -46,11 +46,11 @@ final class CameraShots {
     private static boolean reading;
 
     static {
-        if (on()) for (String id : Config.HA_CAMERAS.split(",")) if (!id.trim().isEmpty()) SHOTS.add(new Shot(id.trim()));
+        if (on()) for (String id : CameraSites.ids()) SHOTS.add(new Shot(id));
     }
 
     static boolean on() {
-        return HomeApps.CAMERAS_ON && !Config.HA_TOKEN.isEmpty();
+        return HomeApps.CAMERAS_ON && Config.CAMERA_ROW && !Config.HA_TOKEN.isEmpty();
     }
 
     /** The cameras, in ha_cameras order (read on the main thread). */

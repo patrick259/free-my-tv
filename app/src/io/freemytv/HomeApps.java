@@ -294,13 +294,13 @@ final class HomeApps {
         return out;
     }
 
-    /** Live TV, the HDMI inputs with a device sending a signal, and All Apps. */
+    /** Live TV, the HDMI inputs with a device sending a signal, and All Apps (only All Apps with show_inputs=false). */
     static List<Item> shortcuts(Context c) {
         List<Item> items = new ArrayList<>();
-        if (liveTv(c) != null && !tunerHidden(c)) {
+        if (Config.SHOW_INPUTS && liveTv(c) != null && !tunerHidden(c)) {
             items.add(shortcut(LIVE_TV, "live", Ui.tr("Live TV"), "tv"));
         }
-        items.addAll(inputs(c));
+        if (Config.SHOW_INPUTS) items.addAll(inputs(c));
         items.add(shortcut(ALL_APPS, "all", Ui.tr("All Apps"), "apps"));
         return items;
     }
@@ -546,7 +546,7 @@ final class HomeApps {
                 intent = new Intent(a, ScoresActivity.class);
                 break;
             case CAMERAS:
-                intent = new Intent(a, CamerasActivity.class);
+                intent = new Intent(a, CameraSites.several() ? CameraSitesActivity.class : CamerasActivity.class);
                 break;
             case SLEEP_TIMER:
                 intent = new Intent(a, SleepTimerActivity.class);

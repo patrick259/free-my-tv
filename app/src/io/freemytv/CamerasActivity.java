@@ -16,6 +16,7 @@ import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -45,6 +46,8 @@ import java.util.Locale;
 public class CamerasActivity extends Activity {
     /** Which camera to start on full screen (its place in ha_cameras), from the home screen's camera row. */
     static final String EXTRA_CAMERA = "camera";
+    /** Only one place's cameras (CameraSites), from CameraSitesActivity. */
+    static final String EXTRA_SITE = "site";
     private static final int BG = 0xFF000000, INK = 0xFFF5F5F7, DIM = 0xFF98989D, LIVE = 0xFFFF453A;
     private static final long HIDE_MS = 5_000, PAUSE_MS = 5 * 60_000, SWITCH_MS = 350, CONNECT_MS = 30_000;
 
@@ -64,6 +67,7 @@ public class CamerasActivity extends Activity {
     /** The grid's live camera follows the highlight, after a moment (each switch wakes a camera). */
     private final Runnable gridSwitch = () -> { if (!single && pageReady && !paused) showGrid(); };
     private float k;
+    private int site = -1;
 
     private final Runnable hide = () -> fade(false);
     private final Runnable pause = () -> {
@@ -84,10 +88,10 @@ public class CamerasActivity extends Activity {
         super.onCreate(savedInstanceState);
         Ui.init(this);
         k = getResources().getDisplayMetrics().widthPixels / 1920f;
-        for (String id : Config.HA_CAMERAS.split(",")) {
-            if (id.trim().isEmpty()) continue;
-            ids.add(id.trim());
-            names.add(CameraShots.fallbackName(id.trim()));
+        site = getIntent().getIntExtra(EXTRA_SITE, -1);
+        for (String id : site >= 0 && site < CameraSites.ALL.size() ? CameraSites.ALL.get(site).ids : CameraSites.ids()) {
+            ids.add(id);
+            names.add(CameraShots.fallbackName(id));
         }
 
         FrameLayout root = new FrameLayout(this);
@@ -143,6 +147,11 @@ public class CamerasActivity extends Activity {
 
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        if (intent.getIntExtra(EXTRA_SITE, -1) != site) {   // another place's cameras: built again for them
+            setIntent(intent);
+            recreate();
+            return;
+        }
         open(intent);
         resume();
     }
@@ -331,7 +340,7 @@ public class CamerasActivity extends Activity {
 
     /**
      * Each camera's tile in 1920 × 1080 design pixels {left, top, width, height}: three cameras as one large on the left
-     * and two stacked on the right; otherwise two across, as many rows as it takes.
+     * and two stacked on the right; otherwise two across up to four, three up to nine, then four, as many rows as it takes.
      */
     private float[] tileRect(int i) {
         float left = 80, top = 150, right = 1840, bottom = 1010, gap = 24, w = right - left, h = bottom - top;
@@ -341,14 +350,15 @@ public class CamerasActivity extends Activity {
             float big = (w - gap) * 0.655f, small = w - gap - big, half = (h - gap) / 2;
             return i == 0 ? new float[] {left, top, big, h} : new float[] {left + big + gap, top + (i - 1) * (half + gap), small, half};
         }
-        int cols = 2, rows = (n + 1) / 2;
-        float tw = (w - gap) / 2, th = (h - (rows - 1) * gap) / rows;
+        int cols = n <= 4 ? 2 : n <= 9 ? 3 : 4, rows = (n + cols - 1) / cols;
+        float tw = (w - (cols - 1) * gap) / cols, th = (h - (rows - 1) * gap) / rows;
         return new float[] {left + (i % cols) * (tw + gap), top + (i / cols) * (th + gap), tw, th};
     }
 
     private View buildGrid() {
         FrameLayout layer = new FrameLayout(this);
-        TextView heading = text(Ui.tr("Cameras"), 52, INK, Ui.displaySemibold);
+        String place = site >= 0 && site < CameraSites.ALL.size() ? CameraSites.ALL.get(site).name : "";
+        TextView heading = text(place.isEmpty() ? Ui.tr("Cameras") : place, 52, INK, Ui.displaySemibold);
         FrameLayout.LayoutParams hp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         hp.leftMargin = px(80);
         hp.topMargin = px(52);
@@ -375,7 +385,7 @@ public class CamerasActivity extends Activity {
                 layoutMode();
                 showSingle(index);
             });
-            TextView name = text(names.get(i), 28, INK, Ui.semibold);
+            TextView name = text(names.get(i), ids.size() > 6 ? 22 : 28, INK, Ui.semibold);
             name.setPadding(px(22), px(10), px(22), px(10));
             name.setBackground(pill(0x8C000000));
             FrameLayout.LayoutParams np = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -394,7 +404,7 @@ public class CamerasActivity extends Activity {
             bp.rightMargin = px(16);
             t.addView(badge, bp);
             liveBadges.add(badge);
-            TextView status = text("", 24, INK, Ui.medium);
+            TextView status = text("", ids.size() > 6 ? 20 : 24, INK, Ui.medium);
             status.setGravity(Gravity.CENTER);
             status.setPadding(px(26), px(12), px(26), px(12));
             status.setBackground(pill(0xA6000000));
@@ -452,11 +462,18 @@ public class CamerasActivity extends Activity {
     }
 
     private View buildBar() {
-        // The cameras, bottom left.
+        // The cameras, bottom left; more than fit across scroll along with the highlight.
+        FrameLayout shade = new FrameLayout(this);
+        shade.setPadding(0, px(90), 0, px(52));
+        shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, new int[] {0xB3000000, 0x00000000}));
+        HorizontalScrollView scroll = new HorizontalScrollView(this);
+        scroll.setHorizontalScrollBarEnabled(false);
+        scroll.setClipToPadding(false);
+        scroll.setPadding(px(80), 0, px(80), 0);
+        shade.addView(scroll);
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(px(80), px(90), px(80), px(52));
-        row.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, new int[] {0xB3000000, 0x00000000}));
+        scroll.addView(row);
         for (int i = 0; i < ids.size(); i++) {
             final int index = i;
             TextView chip = text(names.get(i), 28, INK, Ui.medium);
@@ -477,7 +494,7 @@ public class CamerasActivity extends Activity {
             row.addView(chip, lp);
             chips.add(chip);
         }
-        return row;
+        return shade;
     }
 
     private void say(String s) {

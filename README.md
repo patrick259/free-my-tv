@@ -125,6 +125,7 @@ The first values come from `config.properties`, created by the first build (Goog
 | `temperature` | `C`, `F` or `auto` | `auto` |
 | `disable_assistant` | Also turn off Google Assistant | `false` |
 | `remote_buttons` | `false` leaves the remote's app buttons to the TV (they then work from its home screen only) and never filters the remote's keys; for TVs where that filter gets in the way (held keys don't repeat, Home reads as a long press) | `true` |
+| `show_inputs` | `false` leaves Live TV and the HDMI inputs out of the row under the shelf, for a TV used only for apps | `true` |
 | `hide_services` | Streaming services to leave out of the picks even when their app is on the TV (`netflix`, `prime`, `disney`…), comma separated; for apps the TV ships that you don't subscribe to. Google TV only | empty |
 | `hide_apps` | Apps to leave out of the shelf, All Apps and the picks, by id or name (part of it), comma separated; for apps the TV ships that can't be uninstalled, like Samsung's built-in Netflix. LG and Samsung only | empty |
 
