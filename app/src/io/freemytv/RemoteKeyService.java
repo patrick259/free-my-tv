@@ -1,12 +1,12 @@
 package io.freemytv;
 
 import android.accessibilityservice.AccessibilityService;
+import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.SystemClock;
-import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.accessibility.AccessibilityEvent;
 
@@ -20,8 +20,7 @@ import android.view.accessibility.AccessibilityEvent;
  * Fire OS 7 handles Home before the key filter (it never reaches onKeyEvent), and Home holds app starts back for
  * about 5 s (stopAppSwitches), so ours comes up that long after Amazon's. At power-on it leaves the TV to come back
  * to its last input first (PowerOn), and while you're in Fire TV's settings (a page of Amazon's home screen:
- * FireSettings) it waits for Home. It also shows the game alerts (GameAlerts), runs the sleep timer (SleepTimer) and
- * repeats a held volume key (VolumeHold).
+ * FireSettings) it waits for Home. It also shows the game alerts (GameAlerts) and runs the sleep timer (SleepTimer).
  */
 public class RemoteKeyService extends AccessibilityService {
     /** Window-state events come in bursts: one redirect per burst. */
@@ -43,19 +42,19 @@ public class RemoteKeyService extends AccessibilityService {
     /** The sleep timer's last-minute card, and standby (SleepTimer). */
     final SleepTimer.Warning sleepWarning = new SleepTimer.Warning(this);
 
-    /** Holding a volume key: our key filter keeps Android from repeating it (VolumeHold). */
-    private VolumeHold volumeHold;
-
     /** Every Home press, also where no window changes (Amazon's home screen already in front). */
     private final HomeWatcher homeWatcher = new HomeWatcher(this, () -> {
         FireSettings.homePressed(this);
         if (HomeMode.amazonRedirect(this) && !PowerOn.holding()) redirect();
     });
 
+    /** The key filter, on as declared (remote_key_service.xml) until updateKeyFilter says otherwise. */
+    private boolean filtering = true;
+
     @Override protected void onServiceConnected() {
         super.onServiceConnected();
         running = this;
-        volumeHold = new VolumeHold(this);
+        updateKeyFilter();
         registerReceiver(screenOn, new IntentFilter(Intent.ACTION_SCREEN_ON));
         if (HomeMode.AMAZON) homeWatcher.start();
         alerts.start();
@@ -66,7 +65,6 @@ public class RemoteKeyService extends AccessibilityService {
     @Override public void onDestroy() {
         if (running == this) running = null;
         sleepWarning.hide();
-        if (volumeHold != null) volumeHold.stop();
         homeWatcher.stop();
         alerts.stop();
         try {
@@ -77,23 +75,33 @@ public class RemoteKeyService extends AccessibilityService {
     }
 
     @Override protected boolean onKeyEvent(KeyEvent event) {
-        if (volumeHold != null) volumeHold.onKey(event);
-        // TCL (Google TV 12): with the key filter on, the remote's Home went nowhere (no "homekey", no home screen), while
-        // Home sent through the system's own path still works. So the remote's Home is ours, and goes that way. Ours
-        // comes back from the virtual keyboard: left alone. Fire OS handles Home before the filter.
-        if (event.getKeyCode() == KeyEvent.KEYCODE_HOME && !HomeMode.AMAZON
-                && event.getDeviceId() != KeyCharacterMap.VIRTUAL_KEYBOARD) {
-            if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
-                AppLog.w("remote key home");
-                performGlobalAction(GLOBAL_ACTION_HOME);
-            }
-            return true;
-        }
         return RemoteKeys.onKey(this, event);
+    }
+
+    /**
+     * On Google TV the filter is for the app buttons (RemoteKeys) only, and on a TCL on Android 12 it got in the way of
+     * the remote: held keys (volume, arrows) moved one step, and Home read as a long press, so it went nowhere. So the
+     * keys go to the TV unfiltered with remote_buttons=false, or with no button set to open an app (Remote Buttons: all
+     * on Nothing); the TV's own buttons then work from its home screen. Checked at every window change: the choices
+     * are a file, read again only when it changes (Prefs.keyApp). Fire TV keeps it.
+     */
+    private void updateKeyFilter() {
+        if (HomeMode.AMAZON) return;
+        boolean want = false;
+        if (Config.REMOTE_BUTTONS && RemoteKeys.supported()) for (int key : Prefs.KEYS) want |= !Prefs.keyApp(key).isEmpty();
+        if (want == filtering) return;
+        AccessibilityServiceInfo info = getServiceInfo();
+        if (info == null) return;
+        if (want) info.flags |= AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS;
+        else info.flags &= ~AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS;
+        setServiceInfo(info);
+        filtering = want;
+        AppLog.w("remote key filter " + (want ? "on" : "off"));
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return;
+        updateKeyFilter();
         CharSequence pkg = event.getPackageName();
         if (pkg != null) FireSettings.windowOf(this, pkg.toString());
         if (pkg == null || !HomeMode.AMAZON_LAUNCHER.contentEquals(pkg) || !HomeMode.amazonRedirect(this)) return;

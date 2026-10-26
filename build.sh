@@ -45,6 +45,7 @@ ANIMATION=false; [ "$(prop hide_animation false)" = "true" ] && ANIMATION=true
 HORROR=false; [ "$(prop hide_horror false)" = "true" ] && HORROR=true
 TOONS=false; [ "$(prop hide_animated_shows false)" = "true" ] && TOONS=true
 SPORTS=true; [ "$(prop show_sports true)" = "false" ] && SPORTS=false
+BUTTONS=true; [ "$(prop remote_buttons true)" = "false" ] && BUTTONS=false
 HA_URL="$(prop ha_url '' | sed 's:/*$::')"
 HA_HOST="$(printf '%s' "$HA_URL" | sed -E 's#^[a-z]+://##; s#[:/].*$##')"
 
@@ -72,6 +73,7 @@ final class Config {
     static final boolean HIDE_HORROR = $HORROR;
     static final boolean HIDE_ANIMATED_SHOWS = $TOONS;
     static final boolean SHOW_SPORTS = $SPORTS;
+    static final boolean REMOTE_BUTTONS = $BUTTONS;
     static final String FAVORITE_TEAMS = "$(prop favorite_teams '')";
     static final String HA_URL = "$HA_URL";
     static final String HA_TOKEN = "$(prop ha_token '')";
