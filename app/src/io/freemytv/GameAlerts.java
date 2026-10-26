@@ -1,7 +1,9 @@
 package io.freemytv;
 
 import android.accessibilityservice.AccessibilityService;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.PixelFormat;
 import android.graphics.Typeface;
@@ -21,11 +23,12 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Fire TV: a banner over whatever is playing (Apple TV, YouTube TV, Netflix…) for the games you'd want to know about:
+ * A banner over whatever is playing (Apple TV, YouTube TV, Netflix…) for the games you'd want to know about:
  * your teams (favorite_teams), Formula 1's sessions, and the postseason. It says when one starts in 10 minutes, when
  * it's close at the end (baseball from the 8th within a run, hockey's 3rd period within a goal, football's 4th quarter
  * within 8 points), and your teams' final scores. Each once per game. Runs in RemoteKeyService (its process stays up,
- * and an accessibility service may draw over other apps); the games come from Sports, as in the hero.
+ * and an accessibility service may draw over other apps), so wherever that service is on: Fire TV, and the Google TVs
+ * whose remote buttons it handles (RemoteKeys). The games come from Sports, as in the hero.
  */
 final class GameAlerts {
     private static final long POLL_MS = 30_000, SHOW_MS = 8_000, SOON_MS = 10 * 60_000L;
@@ -98,6 +101,19 @@ final class GameAlerts {
 
     private static String label(Recs.Pick p, String what) {
         return p.label == null || p.label.isEmpty() ? what : what + "  ·  " + p.label;
+    }
+
+    /** A sample banner, to see it on a TV: adb shell am broadcast -n io.freemytv/.GameAlerts\$Test */
+    public static final class Test extends BroadcastReceiver {
+        @Override public void onReceive(Context c, Intent intent) {
+            RemoteKeyService s = RemoteKeyService.running;
+            if (s == null) {
+                AppLog.w("game alert test: the remote service is off");
+                return;
+            }
+            s.alerts.queue.add(new String[] {"CLOSE GAME  ·  TEST", "49ers  20 – 21  Falcons", "4th 2:00 · YouTube TV"});
+            if (s.alerts.banner == null) s.alerts.next();
+        }
     }
 
     private void alert(String key, String label, String title, String detail) {

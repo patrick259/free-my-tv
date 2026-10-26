@@ -36,7 +36,7 @@ public class RemoteKeyService extends AccessibilityService {
     static volatile RemoteKeyService running;
 
     /** Banners over any app for the games you'd want to know about (GameAlerts). */
-    private final GameAlerts alerts = new GameAlerts(this);
+    final GameAlerts alerts = new GameAlerts(this);
 
     /** The sleep timer's last-minute card, and standby (SleepTimer). */
     final SleepTimer.Warning sleepWarning = new SleepTimer.Warning(this);
@@ -51,10 +51,8 @@ public class RemoteKeyService extends AccessibilityService {
         super.onServiceConnected();
         running = this;
         registerReceiver(screenOn, new IntentFilter(Intent.ACTION_SCREEN_ON));
-        if (HomeMode.AMAZON) {
-            homeWatcher.start();
-            alerts.start();
-        }
+        if (HomeMode.AMAZON) homeWatcher.start();
+        alerts.start();
         // Started by a boot rather than woken: the screen-on came before us.
         if (SystemClock.elapsedRealtime() < 3 * 60_000) PowerOn.screenOn(this);
     }

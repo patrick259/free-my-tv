@@ -174,6 +174,13 @@
             android:exported="true"
             android:permission="android.permission.DUMP" />
 
+        <!-- A sample game alert banner (GameAlerts), in RemoteKeyService's process. Only adb's shell holds DUMP. -->
+        <receiver
+            android:name=".GameAlerts$Test"
+            android:process=":keys"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+
         <!-- Fire TV: an HDMI input full screen (Amazon's Live TV doesn't switch to one when asked). -->
         <activity
             android:name=".InputPlayerActivity"
