@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.SystemClock;
+import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.accessibility.AccessibilityEvent;
 
@@ -19,7 +20,8 @@ import android.view.accessibility.AccessibilityEvent;
  * Fire OS 7 handles Home before the key filter (it never reaches onKeyEvent), and Home holds app starts back for
  * about 5 s (stopAppSwitches), so ours comes up that long after Amazon's. At power-on it leaves the TV to come back
  * to its last input first (PowerOn), and while you're in Fire TV's settings (a page of Amazon's home screen:
- * FireSettings) it waits for Home. It also shows the game alerts (GameAlerts) and runs the sleep timer (SleepTimer).
+ * FireSettings) it waits for Home. It also shows the game alerts (GameAlerts), runs the sleep timer (SleepTimer) and
+ * repeats a held volume key (VolumeHold).
  */
 public class RemoteKeyService extends AccessibilityService {
     /** Window-state events come in bursts: one redirect per burst. */
@@ -41,6 +43,9 @@ public class RemoteKeyService extends AccessibilityService {
     /** The sleep timer's last-minute card, and standby (SleepTimer). */
     final SleepTimer.Warning sleepWarning = new SleepTimer.Warning(this);
 
+    /** Holding a volume key: our key filter keeps Android from repeating it (VolumeHold). */
+    private VolumeHold volumeHold;
+
     /** Every Home press, also where no window changes (Amazon's home screen already in front). */
     private final HomeWatcher homeWatcher = new HomeWatcher(this, () -> {
         FireSettings.homePressed(this);
@@ -50,6 +55,7 @@ public class RemoteKeyService extends AccessibilityService {
     @Override protected void onServiceConnected() {
         super.onServiceConnected();
         running = this;
+        volumeHold = new VolumeHold(this);
         registerReceiver(screenOn, new IntentFilter(Intent.ACTION_SCREEN_ON));
         if (HomeMode.AMAZON) homeWatcher.start();
         alerts.start();
@@ -60,6 +66,7 @@ public class RemoteKeyService extends AccessibilityService {
     @Override public void onDestroy() {
         if (running == this) running = null;
         sleepWarning.hide();
+        if (volumeHold != null) volumeHold.stop();
         homeWatcher.stop();
         alerts.stop();
         try {
@@ -70,6 +77,18 @@ public class RemoteKeyService extends AccessibilityService {
     }
 
     @Override protected boolean onKeyEvent(KeyEvent event) {
+        if (volumeHold != null) volumeHold.onKey(event);
+        // TCL (Google TV 12): with the key filter on, the remote's Home went nowhere (no "homekey", no home screen), while
+        // Home sent through the system's own path still works. So the remote's Home is ours, and goes that way. Ours
+        // comes back from the virtual keyboard: left alone. Fire OS handles Home before the filter.
+        if (event.getKeyCode() == KeyEvent.KEYCODE_HOME && !HomeMode.AMAZON
+                && event.getDeviceId() != KeyCharacterMap.VIRTUAL_KEYBOARD) {
+            if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
+                AppLog.w("remote key home");
+                performGlobalAction(GLOBAL_ACTION_HOME);
+            }
+            return true;
+        }
         return RemoteKeys.onKey(this, event);
     }
 
