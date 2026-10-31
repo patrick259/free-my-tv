@@ -157,6 +157,16 @@
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density|fontScale|locale|layoutDirection"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
 
+        <!-- What's New: the new movies and episodes on the TV's services (WhatsNewActivity). -->
+        <activity
+            android:name=".WhatsNewActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density|fontScale|locale|layoutDirection"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
+
         <!-- Now Playing: the music app's song our way, with weather, scores and what's on nearby (MusicActivity). -->
         <activity
             android:name=".MusicActivity"

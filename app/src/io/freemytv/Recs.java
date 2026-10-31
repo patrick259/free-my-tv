@@ -46,6 +46,7 @@ final class Recs {
         int id;
         String kind;            // "movie" or "tv"
         String title, backdrop, meta = "", app, pkg;
+        String poster;          // TMDB's poster (file path): What's New's cards
         String link;            // opens the title in its app (looked up with Watchmode), or null: the app's home
         String logo;            // TMDB's title logo (file path), or null: the title is written out
         boolean scary;          // horror (by genre or TMDB keyword): left out with hide_horror=true
@@ -489,6 +490,87 @@ final class Recs {
         listLanguage = Ui.language;
     }
 
+    // MARK: - What's New (WhatsNewActivity)
+
+    /** One of What's New's rows: its name and its titles, each already on one of the TV's services. */
+    static final class Row {
+        final String title;
+        final List<Pick> picks = new ArrayList<>();
+
+        Row(String title) {
+            this.title = title;
+        }
+    }
+
+    private List<Row> newRows;
+    private long newRowsAt;
+    /** TMDB's News, Talk and Reality genres: not "new episodes" anyone waits for. */
+    private static final String NOT_SHOWS = "10763,10767,10764";
+
+    /**
+     * What's New, as Den has it: the new movies, the shows with a new episode this week, and what's popular, each only
+     * from the TV's services. One query per service and row (so each title knows its app without asking for its
+     * details), the services taking turns, a title only once. Kept six hours. Blocks: call it off the main thread.
+     */
+    synchronized List<Row> whatsNew() throws Exception {
+        if (newRows != null && System.currentTimeMillis() - newRowsAt < LIST_EVERY) return newRows;
+        Map<Integer, String[]> services = new java.util.LinkedHashMap<>();
+        JSONArray providers = get("/watch/providers/movie?language=" + lang() + "&watch_region=" + REGION).getJSONArray("results");
+        for (int i = 0; i < providers.length(); i++) {
+            JSONObject o = providers.getJSONObject(i);
+            String[] sv = service(o.optString("provider_name"), o.optInt("provider_id"));
+            if (sv != null && installed(sv[2]) && !services.containsValue(sv)) services.put(o.getInt("provider_id"), sv);
+        }
+        if (services.isEmpty()) throw new IOException(NO_APPS);
+        String[][] rows = {
+            {Ui.tr("New Movies"), "movie", "&primary_release_date.gte=" + day(-120) + "&primary_release_date.lte=" + day(0)
+                    + "&vote_count.gte=10" + without(false)},
+            {Ui.tr("New Episodes This Week"), "tv", "&air_date.gte=" + day(-7) + "&air_date.lte=" + day(3)
+                    + "&without_genres=" + NOT_SHOWS + without(true).replace("&without_genres=", ",")},
+            {Ui.tr("Popular Movies on Your Apps"), "movie", "&vote_count.gte=50" + without(false)},
+            {Ui.tr("Popular Shows on Your Apps"), "tv", "&vote_count.gte=50&without_genres=" + NOT_SHOWS
+                    + without(true).replace("&without_genres=", ",")},
+        };
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        List<Row> out = new ArrayList<>();
+        for (String[] r : rows) {
+            List<List<Pick>> each = new ArrayList<>();
+            for (Map.Entry<Integer, String[]> e : services.entrySet()) {
+                List<Pick> got = new ArrayList<>();
+                try {
+                    JSONArray res = get("/discover/" + r[1] + "?language=" + lang() + "&watch_region=" + REGION
+                            + "&with_watch_monetization_types=flatrate&include_adult=false&sort_by=popularity.desc"
+                            + "&with_watch_providers=" + e.getKey() + r[2]).getJSONArray("results");
+                    for (int i = 0; i < res.length() && got.size() < 8; i++) add(got, res.getJSONObject(i), r[1]);
+                } catch (Exception ex) {
+                    AppLog.w("what's new: " + ex.getMessage());
+                }
+                for (Pick pk : got) {
+                    pk.app = e.getValue()[1];
+                    pk.pkg = e.getValue()[2];
+                    pk.meta = SERVICE_NAME.get(pk.app) + (pk.meta.isEmpty() ? "" : " · " + pk.meta);
+                }
+                each.add(got);
+            }
+            Row row = new Row(r[0]);
+            for (int i = 0; i < 8 && row.picks.size() < 20; i++) {
+                for (List<Pick> l : each) {
+                    if (i < l.size() && l.get(i).poster != null && seen.add(key(l.get(i))) && row.picks.size() < 20) row.picks.add(l.get(i));
+                }
+            }
+            if (!row.picks.isEmpty()) out.add(row);
+        }
+        newRows = out;
+        newRowsAt = System.currentTimeMillis();
+        return out;
+    }
+
+    /** A title's own page in its app (Watchmode, when there's a key), looked up now if need be. Blocks. */
+    String linkNow(Pick p) {
+        findLink(p);
+        return p.link;
+    }
+
     /** Language of titles and genres (TMDB's "fr-FR", "zh-CN"…); the services come from the region. */
     private static String lang() {
         String lang = Ui.language;
@@ -536,6 +618,10 @@ final class Recs {
         p.kind = kind;
         p.title = o.optString(kind.equals("movie") ? "title" : "name");
         p.backdrop = backdrop;
+        String poster = o.optString("poster_path", "");
+        if (!poster.isEmpty() && !"null".equals(poster)) p.poster = poster;
+        String date = o.optString(kind.equals("movie") ? "release_date" : "first_air_date", "");
+        if (date.length() >= 4) p.meta = date.substring(0, 4);
         list.add(p);
     }
 
