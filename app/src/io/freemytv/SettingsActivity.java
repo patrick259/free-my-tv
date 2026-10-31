@@ -136,11 +136,16 @@ public class SettingsActivity extends Activity {
         private static final float LIST_X = 1000, LIST_R = 1824, LIST_TOP = 186, ROW_GAP = 8, CHOICE_H = 104;
         // The main menu: seven rows, then the comparison, the picks (with the Watchmode credit) and two notices, all on
         // one 1080 px screen.
-        private static final float MAIN_TOP = 140, ROW_H = 62, MAIN_GAP = 4;
+        private static final float MAIN_TOP = 96, ROW_H = 62, MAIN_GAP = 4;
+        // The glass panels: the rows sit INSET inside them, the panel reaching PAD past the first and last row.
+        private static final float INSET = 10, PAD = 10, PANEL_R = 28;
         private static final int AMBER = 0xFFFFC266, INK = 0xFF1C1C1E;
 
         private final SettingsActivity activity;
-        private final Scene scene = new Scene();
+        // iOS-style: the home screen's photo, blurred, behind; the rows on glass panels (Glass).
+        private final android.graphics.drawable.Drawable page = Glass.page(this);
+        private final android.graphics.drawable.Drawable plate = Glass.plate(this, 0);
+        private final Paint divider = new Paint();
         private final Handler handler = new Handler(Looper.getMainLooper());
         private final Spring[] pop = new Spring[12];
         private final List<String> appPkgs = new ArrayList<>(), appLabels = new ArrayList<>();
@@ -163,7 +168,7 @@ public class SettingsActivity extends Activity {
         private StaticLayout errorLayout;   // the last error, wrapped (rebuilt only when it changes)
         private String errorShown;
         private final Spoken spoken;
-        private long startedAt, lastNanos, pendingAt, lastSky;
+        private long startedAt, lastNanos, pendingAt;
         private int w, h;
         private float k = 1;
         private Paint title, subtitle, version, rowLabel, rowValue, rowSub, header, cellLabel, cellValue, warn, spinner, white, shadow;
@@ -193,10 +198,6 @@ public class SettingsActivity extends Activity {
             super(a);
             activity = a;
             for (int i = 0; i < pop.length; i++) pop[i] = new Spring(0.28f, 0.85f, 0);
-            HomeData.Weather wx = HomeData.get(a).weather;
-            Shaders.sky(scene.palette, System.currentTimeMillis(), wx.sunrise, wx.sunset);
-            scene.setMotion(0.5f, 0.2f);
-            scene.applyPalette();
             setFocusable(true);
             setContentDescription("Free My TV");
             // TalkBack: one item per row, id = row + 1.
@@ -308,7 +309,7 @@ public class SettingsActivity extends Activity {
             if (!running) return;
             boolean moving = busy();
             for (Spring s : pop) moving |= !s.settled();
-            if (moving || SystemClock.uptimeMillis() - lastSky >= 100) invalidate();
+            if (moving) invalidate();
             Choreographer.getInstance().postFrameCallback(this);
         }
 
@@ -316,7 +317,6 @@ public class SettingsActivity extends Activity {
             w = width;
             h = height;
             k = w / 1920f;
-            scene.setSize(w, h);
             Symbols.warm(getContext(), "sparkles", 150 * k);
             Symbols.warm(getContext(), "chevron_right", 22 * k);
             Symbols.warm(getContext(), "check", 26 * k);
@@ -383,11 +383,8 @@ public class SettingsActivity extends Activity {
             }
             long up = SystemClock.uptimeMillis();
             float seconds = (up - startedAt) / 1000f;
-            if (up - lastSky >= 100) {
-                lastSky = up;
-                scene.advance(seconds);
-            }
-            scene.drawBackground(c);
+            page.setBounds(0, 0, w, h);
+            page.draw(c);
 
             // On the left: big symbol, title, description.
             float cx = 500 * k;
@@ -407,9 +404,10 @@ public class SettingsActivity extends Activity {
                     Ui.tr("Home Settings"), Ui.tr("Shelf"), Ui.tr("Top Buttons"),
                     Ui.tr("Remote Buttons"), Ui.tr("TV Settings")};
             String[] values = {working ? "" : mode, Ui.tr("Preview"), "", "", "", "", ""};
+            group(c, MAIN_TOP, labels.length, ROW_H, ROW_H + MAIN_GAP);
             for (int i = 0; i < labels.length; i++) {
                 float y = (MAIN_TOP + i * (ROW_H + MAIN_GAP)) * k;
-                rowRect.set(LIST_X * k, y, LIST_R * k, y + ROW_H * k);
+                rowRect.set((LIST_X + INSET) * k, y, (LIST_R - INSET) * k, y + ROW_H * k);
                 float f = drawRowBackground(c, i);
                 int ink = blend(0xF2FFFFFF, INK, f);
                 rowLabel.setColor(ink);
@@ -455,13 +453,14 @@ public class SettingsActivity extends Activity {
                 y += errorLayout.getLineBaseline(errorLayout.getLineCount() - 1) - errorLayout.getLineBaseline(0) + 46 * k;
             }
             y = drawComparison(c, y);
-            y = drawRecs(c, y + 26 * k);
-            drawNotices(c, y + 40 * k);
+            y = drawRecs(c, y + 30 * k);
+            drawNotices(c, y + 52 * k);
         }
 
         /** Home screen picks: status, and the credit TMDB asks for. */
         private float drawRecs(Canvas c, float y) {
             float x = LIST_X * k + 30 * k;
+            panel(c, y / k + 16, y / k + (Config.WATCHMODE_KEY.trim().isEmpty() ? 108 : 136));
             c.drawText(Ui.tr("RECOMMENDATIONS"), x, y, header);
             String line;
             String error = recs.optString("error");
@@ -472,14 +471,36 @@ public class SettingsActivity extends Activity {
             else if (!error.isEmpty()) line = Ui.trf("Error: {error}.", "error", error);
             else if (count > 0) line = Ui.trf("On · {n} titles from the TV's apps, 3 new ones every hour.", "n", count);
             else line = Ui.tr("Fetching titles…");
-            c.drawText(TextUtils.ellipsize(line, notice, 790 * k, TextUtils.TruncateAt.END).toString(), x, y + 42 * k, notice);
+            c.drawText(TextUtils.ellipsize(line, notice, 790 * k, TextUtils.TruncateAt.END).toString(), x, y + 52 * k, notice);
             version.setTextAlign(Paint.Align.LEFT);
-            c.drawText(Ui.tr("This product uses the TMDB API but is not endorsed or certified by TMDB."), x, y + 78 * k, version);
+            c.drawText(Ui.tr("This product uses the TMDB API but is not endorsed or certified by TMDB."), x, y + 88 * k, version);
             if (!Config.WATCHMODE_KEY.trim().isEmpty()) {
-                c.drawText(Ui.tr("Links to the titles by Watchmode."), x, y + 108 * k, version);
+                c.drawText(Ui.tr("Links to the titles by Watchmode."), x, y + 118 * k, version);
             }
             version.setTextAlign(Paint.Align.CENTER);
-            return y + (Config.WATCHMODE_KEY.trim().isEmpty() ? 78 : 108) * k;
+            return y + (Config.WATCHMODE_KEY.trim().isEmpty() ? 88 : 118) * k;
+        }
+
+        /**
+         * A glass panel behind `rows` rows (the first at `top`, each `rowH` tall, `pitch` apart, in design px), with a
+         * hairline between rows, as in iOS's settings (not beside the focused one, which is white).
+         */
+        private void group(Canvas c, float top, int rows, float rowH, float pitch) {
+            if (rows <= 0) return;
+            panel(c, top - PAD, top + (rows - 1) * pitch + rowH + PAD);
+            divider.setColor(0x1FFFFFFF);
+            for (int i = 1; i < rows; i++) {
+                if (pop[i].value > 0.05f || pop[i - 1].value > 0.05f) continue;
+                float y = (top + i * pitch - (pitch - rowH) / 2) * k;
+                c.drawRect((LIST_X + 40) * k, y - Math.max(1, k) / 2, (LIST_R - 40) * k, y + Math.max(1, k) / 2, divider);
+            }
+        }
+
+        /** A glass panel across the list's width, from `top` to `bottom` (design px). */
+        private void panel(Canvas c, float top, float bottom) {
+            plate.setBounds(Math.round(LIST_X * k), Math.round(top * k), Math.round(LIST_R * k), Math.round(bottom * k));
+            ((Glass.Radius) plate).radius(PANEL_R * k);
+            plate.draw(c);
         }
 
         /** List row: no background; focused, white with a shadow (the Apple TV focus). Returns how focused it is. */
@@ -503,6 +524,7 @@ public class SettingsActivity extends Activity {
 
         private float drawComparison(Canvas c, float y) {
             float x = LIST_X * k + 30 * k, colA = LIST_R * k - 220 * k, colB = LIST_R * k - 30 * k;
+            panel(c, y / k + 16, y / k + 160);
             c.drawText(Ui.tr("COMPARISON"), x, y, header);
             cellValue.setColor(0x73FFFFFF);
             c.drawText(Ui.tr("Original"), colA, y, cellValue);
@@ -514,27 +536,30 @@ public class SettingsActivity extends Activity {
             String[][] rows = {{Ui.tr("Home button"), "homeMs"}, {Ui.tr("Free memory"), "memAvailableMB"},
                     {Ui.tr("Home screen memory"), "homePssMB"}};
             for (int i = 0; i < rows.length; i++) {
-                float base = y + (46 + 40 * i) * k;
+                float base = y + (58 + 40 * i) * k;
                 c.drawText(rows[i][0], x, base, cellLabel);
                 c.drawText(metric(a, rows[i][1]), colA, base, cellValue);
                 c.drawText(metric(b, rows[i][1]), colB, base, cellValue);
             }
-            return y + (46 + 40 * rows.length) * k;
+            return y + (66 + 40 * rows.length) * k;
         }
 
         private void drawNotices(Canvas c, float y) {
             float x = LIST_X * k + 30 * k;
-            c.drawText(Ui.tr("NOTICES"), x, y, header);
             JSONArray notices = state.optJSONArray("notices");
+            int lines = 0;
+            for (int i = 0; notices != null && i < notices.length() && lines < 2; i++) if (notices.optJSONObject(i) != null) lines++;
+            panel(c, y / k + 16, y / k + 30 + 38 * Math.max(1, lines) + 14);
+            c.drawText(Ui.tr("NOTICES"), x, y, header);
             int shown = 0;
             for (int i = 0; notices != null && i < notices.length() && shown < 2; i++) {
                 JSONObject o = notices.optJSONObject(i);
                 if (o == null) continue;
                 String line = ago(o.optLong("at")) + " · " + o.optString("text");
-                c.drawText(TextUtils.ellipsize(line, notice, 790 * k, TextUtils.TruncateAt.END).toString(), x, y + (42 + 38 * shown) * k, notice);
+                c.drawText(TextUtils.ellipsize(line, notice, 790 * k, TextUtils.TruncateAt.END).toString(), x, y + (54 + 38 * shown) * k, notice);
                 shown++;
             }
-            if (shown == 0) c.drawText(Ui.tr("None yet."), x, y + 42 * k, notice);
+            if (shown == 0) c.drawText(Ui.tr("None yet."), x, y + 54 * k, notice);
         }
 
         /** Home screen choice: Free My TV or the original, with a check on the one in use. */
@@ -544,9 +569,10 @@ public class SettingsActivity extends Activity {
             String[][] options = {{"Free My TV", Ui.tr("No ads, with the new screensaver")},
                     {Ui.tr("Original"), Ui.tr("The TV's factory home screen")}};
             int current = freeActive() ? 0 : 1;
+            group(c, LIST_TOP + 20, 2, CHOICE_H, CHOICE_H + ROW_GAP);
             for (int i = 0; i < 2; i++) {
                 float y = (LIST_TOP + 20 + i * (CHOICE_H + ROW_GAP)) * k;
-                rowRect.set(LIST_X * k, y, LIST_R * k, y + CHOICE_H * k);
+                rowRect.set((LIST_X + INSET) * k, y, (LIST_R - INSET) * k, y + CHOICE_H * k);
                 float f = drawRowBackground(c, i);
                 rowLabel.setColor(blend(0xF2FFFFFF, INK, f));
                 rowSub.setColor(blend(0x8CFFFFFF, 0x991C1C1E, f));
@@ -947,11 +973,12 @@ public class SettingsActivity extends Activity {
             Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
             c.drawText(editingTop ? Ui.tr("Top Buttons") : Ui.tr("Shelf"), LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
             int rows = rowCount();
+            group(c, LIST_TOP + 20, rows, LIST_ROW_H, LIST_ROW_H + LIST_ROW_GAP);
             for (int i = 0; i < rows; i++) {
                 String[] app = shelfRows.get(pickScroll + i);
                 int place = shelfOrder.indexOf(app[0]);
                 float y = (LIST_TOP + 20 + i * (LIST_ROW_H + LIST_ROW_GAP)) * k;
-                rowRect.set(LIST_X * k, y, LIST_R * k, y + LIST_ROW_H * k);
+                rowRect.set((LIST_X + INSET) * k, y, (LIST_R - INSET) * k, y + LIST_ROW_H * k);
                 float f = drawRowBackground(c, i);
                 rowLabel.setColor(blend(place >= 0 ? 0xF2FFFFFF : 0x80FFFFFF, place >= 0 ? INK : 0x801C1C1E, f));
                 rowValue.setColor(blend(0xB3FFFFFF, 0xB31C1C1E, f));
@@ -1007,10 +1034,11 @@ public class SettingsActivity extends Activity {
                     : pickFor == PICK_LANGUAGE ? Ui.tr("Language") : keyLabels()[pickFor - 1];
             c.drawText(title, LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
             int rows = rowCount();
+            group(c, LIST_TOP + 20, rows, LIST_ROW_H, LIST_ROW_H + LIST_ROW_GAP);
             for (int i = 0; i < rows; i++) {
                 int at = pickScroll + i;
                 float y = (LIST_TOP + 20 + i * (LIST_ROW_H + LIST_ROW_GAP)) * k;
-                rowRect.set(LIST_X * k, y, LIST_R * k, y + LIST_ROW_H * k);
+                rowRect.set((LIST_X + INSET) * k, y, (LIST_R - INSET) * k, y + LIST_ROW_H * k);
                 float f = drawRowBackground(c, i);
                 rowLabel.setColor(blend(0xF2FFFFFF, INK, f));
                 c.drawText(pickLabels.get(at), rowRect.left + 30 * k, rowRect.centerY() + Ui.halfCap(rowLabel), rowLabel);
@@ -1034,9 +1062,10 @@ public class SettingsActivity extends Activity {
                     LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
             float pitch = LIST_ROW_H + LIST_ROW_GAP;
             int rows = keys ? labels.length : rowCount(), from = keys ? 0 : pickScroll;
+            group(c, LIST_TOP + 20, rows, LIST_ROW_H, pitch);
             for (int i = 0; i < rows; i++) {
                 float y = (LIST_TOP + 20 + i * pitch) * k;
-                rowRect.set(LIST_X * k, y, LIST_R * k, y + LIST_ROW_H * k);
+                rowRect.set((LIST_X + INSET) * k, y, (LIST_R - INSET) * k, y + LIST_ROW_H * k);
                 float f = drawRowBackground(c, i);
                 rowLabel.setColor(blend(0xF2FFFFFF, INK, f));
                 boolean locked = !keys && from + i >= COIN_ROWS && !Prefs.quotes();

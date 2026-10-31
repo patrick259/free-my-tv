@@ -31,12 +31,16 @@ import java.util.Calendar;
 final class Glass {
     private Glass() {}
 
-    /** The picture behind every screen, and how much darker it is there (under the glass it is lighter). */
-    private static final float PAGE_DIM = 0.55f, GLASS_DIM = 0.32f;
+    /**
+     * As on the home screen's shelf, what makes it read as glass is the contrast: the page shows the picture fairly
+     * sharp (darkened for the text), the glass shows it soft, brighter and richer. PAGE_DIM and GLASS_DIM: how much
+     * darker each is.
+     */
+    private static final float PAGE_DIM = 0.42f, GLASS_DIM = 0.1f;
     private static final String FILE = "glass-backdrop.png";
 
-    private static Bitmap image;
-    private static BitmapShader shader;
+    private static Bitmap sharp, soft;
+    private static BitmapShader sharpShader, softShader;
     private static long imageStamp = -1, skyHour = -1;
 
     /** From the home screen when its featured photo changes: the glass copy (Backdrop.GW × GH), kept for the others. */
@@ -56,22 +60,26 @@ final class Glass {
         part.renameTo(f);
     }
 
-    /** The picture (the home screen's latest, else this hour's sky), read again only when it changed. */
-    static synchronized BitmapShader shader(Context c) {
+    /** The picture (the home screen's latest, else this hour's sky) in its two versions, read again when it changed. */
+    private static synchronized void load(Context c) {
         File f = new File(c.getApplicationContext().getFilesDir(), FILE);
         long stamp = f.exists() ? f.lastModified() : 0;
         long hour = System.currentTimeMillis() / 3_600_000;
-        if (shader != null && stamp == imageStamp && (stamp != 0 || hour == skyHour)) return shader;
+        if (sharpShader != null && stamp == imageStamp && (stamp != 0 || hour == skyHour)) return;
         Bitmap b = stamp != 0 ? BitmapFactory.decodeFile(f.getPath()) : null;
-        if (b != null) b = soften(b);
         if (b == null) {
             b = sky();
             skyHour = hour;
         }
         imageStamp = stamp;
-        image = b;
-        shader = new BitmapShader(b, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
-        return shader;
+        sharp = b;
+        soft = soften(b.copy(Bitmap.Config.ARGB_8888, true));
+        sharpShader = filtered(sharp);
+        softShader = filtered(soft);
+    }
+
+    private static BitmapShader filtered(Bitmap b) {
+        return new BitmapShader(b, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
     }
 
     /**
@@ -87,6 +95,15 @@ final class Glass {
         for (int pass = 0; pass < 3; pass++) {
             box(px, tmp, w, h, 6, true);
             box(tmp, px, w, h, 6, false);
+        }
+        // Brighter and richer, as the shelf's glass copy (Backdrop): the glass gathers the light.
+        for (int i = 0; i < px.length; i++) {
+            int p = px[i], r = (p >> 16) & 255, g = (p >> 8) & 255, b = p & 255;
+            float gray = 0.299f * r + 0.587f * g + 0.114f * b;
+            r = Math.round(Math.max(0, Math.min(255, gray + (r - gray) * 1.35f)) * 0.86f + 255 * 0.14f);
+            g = Math.round(Math.max(0, Math.min(255, gray + (g - gray) * 1.35f)) * 0.86f + 255 * 0.14f);
+            b = Math.round(Math.max(0, Math.min(255, gray + (b - gray) * 1.35f)) * 0.86f + 255 * 0.14f);
+            px[i] = 0xFF000000 | (r << 16) | (g << 8) | b;
         }
         Bitmap out = small.isMutable() ? small : Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
         out.setPixels(px, 0, w, 0, 0, w, h);
@@ -134,7 +151,7 @@ final class Glass {
     }
 
     /** Maps the picture onto the screen (covering it), seen from a canvas whose origin is at `x`, `y` on screen. */
-    private static void map(Matrix m, View v, float x, float y) {
+    private static void map(Matrix m, Bitmap image, View v, float x, float y) {
         int sw = v.getResources().getDisplayMetrics().widthPixels, sh = v.getResources().getDisplayMetrics().heightPixels;
         float s = Math.max(sw / (float) image.getWidth(), sh / (float) image.getHeight());
         m.setScale(s, s);
@@ -193,9 +210,10 @@ final class Glass {
         }
 
         @Override public void draw(Canvas c) {
-            BitmapShader s = shader(host.getContext());
+            load(host.getContext());
+            BitmapShader s = sharpShader;
             host.getLocationOnScreen(loc);
-            map(m, host, loc[0], loc[1]);
+            map(m, sharp, host, loc[0], loc[1]);
             s.setLocalMatrix(m);
             paint.setShader(s);
             c.drawRect(getBounds(), paint);
@@ -208,9 +226,14 @@ final class Glass {
         @Override public int getOpacity() { return PixelFormat.OPAQUE; }
     }
 
-    private static final class Plate extends Drawable {
+    /** A glass drawn by hand in a custom view (Settings), whose panels have their own corners. */
+    interface Radius {
+        void radius(float r);
+    }
+
+    private static final class Plate extends Drawable implements Radius {
         private final View host;
-        private final float radius;
+        private float radius;
         private final int left, right;
         private final Float amount;
         boolean focus;
@@ -238,11 +261,12 @@ final class Glass {
             float k = host.getResources().getDisplayMetrics().widthPixels / 1920f, a = alpha / 255f;
             float rad = Math.min(radius, Math.min(b.width(), b.height()) / 2f);
             r.set(b);
-            BitmapShader s = shader(host.getContext());
+            load(host.getContext());
+            BitmapShader s = softShader;
             host.getLocationOnScreen(loc);
-            map(m, host, loc[0], loc[1]);
+            map(m, soft, host, loc[0], loc[1]);
             s.setLocalMatrix(m);
-            // The picture, lighter than the page around it.
+            // The picture, soft and lighter than the page around it.
             fill.setShader(s);
             fill.setAlpha(alpha);
             c.drawRoundRect(r, rad, rad, fill);
@@ -256,7 +280,7 @@ final class Glass {
                 c.drawRoundRect(r, rad, rad, fill);
                 fill.setShader(null);
             } else {
-                fill.setColor(Ui.alpha(0xFFFFFFFF, (focus ? 0.16f : 0.07f) * a));
+                fill.setColor(Ui.alpha(0xFFFFFFFF, (focus ? 0.2f : 0.1f) * a));
                 c.drawRoundRect(r, rad, rad, fill);
             }
             // The thick edge: the picture slightly magnified, in a band along the rim.
@@ -265,7 +289,7 @@ final class Glass {
             s.setLocalMatrix(m);
             band.setShader(s);
             band.setStrokeWidth(w);
-            band.setAlpha(Math.round(150 * a));
+            band.setAlpha(Math.round(200 * a));
             RectF in = new RectF(r);
             in.inset(w / 2, w / 2);
             float ir = Math.max(0, rad - w / 2);
@@ -283,6 +307,10 @@ final class Glass {
             in.inset(half, half);
             c.drawRoundRect(in, Math.max(0, rad - half), Math.max(0, rad - half), rim);
             rim.setShader(null);
+        }
+
+        @Override public void radius(float r) {
+            radius = r;
         }
 
         @Override public void setAlpha(int a) {
