@@ -103,7 +103,9 @@ final class Backdrop {
         Canvas c = new Canvas(out);
         if (forLight && featured && !own) {
             int[] frost = reduce(out, FW, FH, 3, 3);
-            int[] light = whiten(frost.clone(), 0.82f);
+            // Under the open drawer: the photo lightened, but still its colors (whitened further, the drawer's glass
+            // had nothing to show and read as frosted white).
+            int[] light = whiten(saturate(frost.clone(), 1.3f), 0.5f);
             // The shelf's Liquid Glass shows the photo through it: a little brighter and richer (as tvOS does), not
             // whitened (that read as a milky bar); at night only a little darker.
             int[] glass = reduce(out, GW, GH, 2, 2);

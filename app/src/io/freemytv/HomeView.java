@@ -1730,13 +1730,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             tmp.offset(0, drop);
             shadow.setColor(Ui.alpha(shadowColor, 1 - dk));
             shadows.draw(c, tmp, radius, SHADOW_BLUR * k, shadow);
-            scene.glass(c, r, radius, 0xFFFFFFFF, lightTint * 0.8f, 0, 0, 0.02f, 1, 1 - dk);
+            scene.glass(c, r, radius, 0xFFFFFFFF, lightTint * 0.55f, 0, 0, 0.02f, 1, 1 - dk);
         }
         if (dk > 0.001f) scene.glass(c, r, radius, SMOKE, 0.34f, 0, 0, 0.02f, 1, dk);
     }
 
     private void drawerCard(Canvas c, RectF r) {
-        drawerGlass(c, r, 30 * k, 0.72f, 0x1A000000, 10 * k);
+        // Frostier than the buttons: the cards have small gray text on them.
+        drawerGlass(c, r, 30 * k, 1.12f, 0x1A000000, 10 * k);
     }
 
     private void drawDrawer(Canvas c) {

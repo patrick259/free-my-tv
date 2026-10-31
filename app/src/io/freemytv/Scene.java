@@ -349,7 +349,10 @@ final class Scene {
         if (glass == null) {
             if (imageFrost && softShaderFrost != null) {
                 bitmapGlass(c, r, radius, softShaderFrost, Backdrop.FW / (float) SOFT_FROST, Backdrop.FH / (float) SOFT_FROST, null, 0,
-                        tint, Math.max(0.35f, tintAlpha), lift, body, 1, alpha);
+                        tint, tintAlpha, lift, body, 1, alpha);
+                // The liquid glass's thick edge and rim here too (the drawer's buttons and cards), over what's behind.
+                if (body > 0) lens(c, r, radius, softShaderFrost, Backdrop.FW / (float) SOFT_FROST, Backdrop.FH / (float) SOFT_FROST,
+                        Math.min(14 * w / 1920f, Math.min(r.width(), r.height()) / 6), 0.75f, alpha);
                 return;
             }
             if (body > 0) {

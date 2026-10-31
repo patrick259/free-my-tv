@@ -36,7 +36,7 @@ final class Glass {
      * sharp (darkened for the text), the glass shows it soft, brighter and richer. PAGE_DIM and GLASS_DIM: how much
      * darker each is.
      */
-    private static final float PAGE_DIM = 0.42f, GLASS_DIM = 0.1f;
+    private static final float PAGE_DIM = 0.3f, GLASS_DIM = 0f;
     private static final String FILE = "glass-backdrop.png";
 
     private static Bitmap sharp, soft;
@@ -289,7 +289,7 @@ final class Glass {
             s.setLocalMatrix(m);
             band.setShader(s);
             band.setStrokeWidth(w);
-            band.setAlpha(Math.round(200 * a));
+            band.setAlpha(Math.round(255 * a));
             RectF in = new RectF(r);
             in.inset(w / 2, w / 2);
             float ir = Math.max(0, rad - w / 2);
@@ -299,7 +299,7 @@ final class Glass {
             c.drawRoundRect(in, ir, ir, band);
             // The rim: bright along the top, faint below (brighter, and a little wider, when focused).
             rim.setStrokeWidth(Math.max(1.5f, (focus ? 3 : 2) * k));
-            rim.setShader(new LinearGradient(0, r.top, 0, r.bottom, new int[] {Ui.alpha(0xFFFFFFFF, (focus ? 0.95f : 0.6f) * a),
+            rim.setShader(new LinearGradient(0, r.top, 0, r.bottom, new int[] {Ui.alpha(0xFFFFFFFF, (focus ? 0.95f : 0.8f) * a),
                     Ui.alpha(0xFFFFFFFF, (focus ? 0.4f : 0.12f) * a), Ui.alpha(0xFFFFFFFF, (focus ? 0.6f : 0.22f) * a)},
                     new float[] {0, 0.55f, 1}, Shader.TileMode.CLAMP));
             in.set(r);
