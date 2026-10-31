@@ -48,6 +48,9 @@ final class Scene {
     private static final int SW = Backdrop.GW / SOFT, SH = Backdrop.GH / SOFT, SFW = Backdrop.FW / SOFT_FROST, SFH = Backdrop.FH / SOFT_FROST;
     private final Paint softPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
     private final Paint sheenPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint lensPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final Paint rimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF lensRect = new RectF();
     private final Matrix softMatrix = new Matrix();
     private final RectF sheenRect = new RectF();
     private int[] softPxA, softPxB, softPxFrost;         // reused pixel buffers
@@ -78,6 +81,9 @@ final class Scene {
         flatRim.setStyle(Paint.Style.STROKE);
         flatRim.setColor(0x33FFFFFF);
         flatRim.setStrokeWidth(1.5f);
+        lensPaint.setStyle(Paint.Style.STROKE);
+        rimPaint.setStyle(Paint.Style.STROKE);
+        rimPaint.setStrokeWidth(2f);
         if (glass == null) {
             sheenPaint.setStyle(Paint.Style.STROKE);
             sheenPaint.setStrokeWidth(1.5f);
@@ -239,7 +245,8 @@ final class Scene {
             if (imageGlass && softShaderA != null) {
                 // Mapped by what the copy covers: 270 / 8 = 33.75 rows, of which the bitmap holds 33.
                 bitmapGlass(c, r, radius, softShaderA, Backdrop.GW / (float) SOFT, Backdrop.GH / (float) SOFT, softShaderB,
-                        glassMix, tint, Math.max(0.5f, tintAlpha), lift, 1, specular, alpha);
+                        glassMix, tint, tintAlpha, lift, 1, specular, alpha);
+                lens(c, r, radius, softShaderA, Backdrop.GW / (float) SOFT, Backdrop.GH / (float) SOFT, band, specular, alpha);
             } else {
                 glass(c, r, radius, tint, Math.max(0.5f, tintAlpha), 0, 0, lift, 1, alpha);
             }
@@ -397,6 +404,42 @@ final class Scene {
             c.drawRoundRect(sheenRect, radius, radius, sheenPaint);
             c.restore();
         }
+    }
+
+    /**
+     * Without AGSL, what makes the liquid glass read as glass: a band along the edge showing the photo a little
+     * magnified (the thick rim bending the light, as the shader does) and a light rim, bright along the top and
+     * faint at the bottom. The rim's gradient is made per call: it is only drawn when the shelf's layer is redrawn.
+     */
+    private void lens(Canvas c, RectF r, float radius, BitmapShader shader, float bw, float bh, float band, float specular,
+                      float alpha) {
+        radius = Math.min(radius, Math.min(r.width(), r.height()) / 2);
+        if (band >= 2) {
+            float zoom = 1.06f;
+            softMatrix.setScale(w / bw, h / bh);
+            softMatrix.postTranslate(-offX, -offY);
+            softMatrix.postScale(zoom, zoom, r.centerX(), r.centerY());
+            shader.setLocalMatrix(softMatrix);
+            lensPaint.setShader(shader);
+            lensPaint.setStrokeWidth(band);
+            lensPaint.setAlpha(Math.round(200 * alpha));
+            lensRect.set(r);
+            lensRect.inset(band / 2, band / 2);
+            float lr = Math.max(0, radius - band / 2);
+            c.drawRoundRect(lensRect, lr, lr, lensPaint);
+            lensPaint.setShader(null);
+            // A breath of light on the band, so it reads as the glass's thick edge.
+            lensPaint.setColor(Ui.alpha(0xFFFFFFFF, 0.07f * alpha));
+            c.drawRoundRect(lensRect, lr, lr, lensPaint);
+            lensPaint.setColor(0xFFFFFFFF);
+        }
+        rimPaint.setShader(new android.graphics.LinearGradient(0, r.top, 0, r.bottom,
+                new int[] {Ui.alpha(0xFFFFFFFF, Math.min(1, 0.9f * specular) * alpha), Ui.alpha(0xFFFFFFFF, 0.18f * alpha),
+                        Ui.alpha(0xFFFFFFFF, 0.32f * alpha)}, new float[] {0, 0.55f, 1}, Shader.TileMode.CLAMP));
+        lensRect.set(r);
+        lensRect.inset(1, 1);
+        c.drawRoundRect(lensRect, radius - 1, radius - 1, rimPaint);
+        rimPaint.setShader(null);
     }
 
     private static int blend(int a, int b, float t) {

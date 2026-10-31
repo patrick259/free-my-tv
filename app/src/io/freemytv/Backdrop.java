@@ -104,10 +104,12 @@ final class Backdrop {
         if (forLight && featured && !own) {
             int[] frost = reduce(out, FW, FH, 3, 3);
             int[] light = whiten(frost.clone(), 0.82f);
+            // The shelf's Liquid Glass shows the photo through it: a little brighter and richer (as tvOS does), not
+            // whitened (that read as a milky bar); at night only a little darker.
             int[] glass = reduce(out, GW, GH, 2, 2);
-            int[] lightGlass = whiten(glass.clone(), 0.74f);
+            int[] lightGlass = whiten(saturate(glass.clone(), 1.35f), 0.14f);
             int[] night = darken(frost.clone(), 0.76f);
-            int[] nightGlass = darken(glass, 0.56f);
+            int[] nightGlass = darken(saturate(glass, 1.25f), 0.3f);
             scrims(c, out);
             return new Backdrop(gpu(out), frost, null, null, null, light, lightGlass, night, nightGlass);
         }
@@ -250,6 +252,19 @@ final class Backdrop {
             for (int y = 0; y < GH; y++) col[y] = px[y * GW + x];
             if (light) whiten(col, a); else darken(col, a);
             for (int y = 0; y < GH; y++) px[y * GW + x] = col[y];
+        }
+        return px;
+    }
+
+    /** Colour pushed away from gray by `amount` (1 = as it was). */
+    private static int[] saturate(int[] px, float amount) {
+        for (int i = 0; i < px.length; i++) {
+            int p = px[i], r = (p >> 16) & 255, g = (p >> 8) & 255, b = p & 255;
+            float gray = 0.299f * r + 0.587f * g + 0.114f * b;
+            r = Math.max(0, Math.min(255, Math.round(gray + (r - gray) * amount)));
+            g = Math.max(0, Math.min(255, Math.round(gray + (g - gray) * amount)));
+            b = Math.max(0, Math.min(255, Math.round(gray + (b - gray) * amount)));
+            px[i] = 0xFF000000 | (r << 16) | (g << 8) | b;
         }
         return px;
     }

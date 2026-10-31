@@ -467,6 +467,11 @@ final class Ui {
         return Ui.datePattern("format|EEEE, MMMM d").format(now);
     }
 
+    /** "Sat, Oct 31": the date beside the clock on the featured home screen. */
+    static String shortDate(long now) {
+        return Ui.datePattern("format|EEE, MMM d").format(now);
+    }
+
     /** Spinning arc (work in progress). */
     static void spinner(Canvas c, float cx, float cy, float r, float seconds, Paint stroke) {
         OVAL.set(cx - r, cy - r, cx + r, cy + r);

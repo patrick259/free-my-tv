@@ -453,24 +453,10 @@ final class HomeData {
         }
     }
 
-    /** Celsius or Fahrenheit (config.properties "temperature": C, F, or auto = Fahrenheit in the US). */
-    /**
-     * The hero's forecast: in the morning today's ("Today: Sunny, 74° / 52°"), in the evening tomorrow's, with the
-     * chance of rain from 30%; empty around midday or without a forecast.
-     */
-    static String outlook(Weather wx, long now) {
-        java.util.Calendar cal = java.util.Calendar.getInstance();
-        cal.setTimeInMillis(now);
-        int hour = cal.get(java.util.Calendar.HOUR_OF_DAY);
-        boolean morning = hour >= 4 && hour < 12, evening = hour >= 17 || hour < 4;
-        if (!morning && !evening) return "";
-        // After midnight "tomorrow" is the day that just started.
-        int day = morning ? 0 : (hour < 4 ? 0 : 1);
-        if (wx.days.size() <= day || wx.dayCode.get(day) < 0) return "";
-        String when = morning || hour < 4 ? Ui.tr("Today") : Ui.tr("Tomorrow");
-        int rain = wx.dayRain.get(day);
-        return when + ": " + condition(wx.dayCode.get(day), true) + ", " + degrees(wx.dayMax.get(day)) + " / "
-                + degrees(wx.dayMin.get(day)) + (rain >= 30 ? ", " + Ui.trf("{p}% rain", "p", rain) : "");
+    /** Today's high and low, as on the Apple TV: "H:66° L:53°" ("" before the forecast is in). */
+    static String highLow(Weather wx) {
+        if (wx.days.isEmpty()) return "";
+        return Ui.trf("H:{high} L:{low}", "high", degrees(wx.dayMax.get(0)), "low", degrees(wx.dayMin.get(0)));
     }
 
     /** "Sun", "Mon"…: a day of the forecast. */

@@ -254,7 +254,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final long BURST_MS = 1500;
     private int w, h;
     private float k = 1;
-    private String clockText = "", dateText = "", weatherLine = "";
+    private String clockText = "", dateText = "", shortDateText = "", weatherLine = "";
     private long weatherLineAt = -1;
     private int weatherLinePrefs = -1;
     private String weatherLineLanguage = "";
@@ -807,6 +807,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         clockMinute = minute;
         clockText = Ui.clock(now);
         dateText = Ui.date(now);
+        shortDateText = Ui.shortDate(now);
         return true;
     }
 
@@ -1252,8 +1253,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         tmp.offset(0, 18 * k);
         shadow.setColor(tone(0x1F000000, 0x52000000));
         shadows.draw(c, tmp, radius, SHADOW_BLUR * k, shadow);
-        // White glass by day; smoked glass at night.
-        scene.liquid(c, platterRect, radius, tone(0xFFFFFFFF, SMOKE), tone(0.42f, 0.12f), tone(0.03f, 0.08f),
+        // Liquid Glass: the photo shows through, only lightly tinted (white by day, smoke at night).
+        scene.liquid(c, platterRect, radius, tone(0xFFFFFFFF, SMOKE), tone(0.16f, 0.14f), tone(0.03f, 0.08f),
                 tone(30, 34) * k, tone(22, 28) * k, tone(0.65f, 0.95f), 1);
     }
 
@@ -3341,7 +3342,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float base = F_TOP_BASE * k;
         text(c, clockText, x, base, metaPaint, 0xFFFFFFFF, 1);
         float tx = x + metaPaint.measureText(clockText) + 22 * k;
-        String rest = dateText;
+        String rest = shortDateText;
         HomeData.Weather wx = data.weather;
         boolean weather = Prefs.weather() && !Double.isNaN(wx.temp);
         if (weather) rest += "   ·";
@@ -3352,12 +3353,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             String symbol = Symbols.weather(wx.code, wx.isDay);
             float sw = Symbols.width(getContext(), symbol, size);
             Symbols.draw(getContext(), c, symbol, tx + sw / 2, base - Ui.halfCap(metaPaint), size, 0xD1FFFFFF);
-            String now = HomeData.degrees(wx.temp) + "  " + HomeData.condition(wx.code, wx.isDay);
+            String now = HomeData.degrees(wx.temp) + " " + HomeData.condition(wx.code, wx.isDay);
             float nx = tx + sw + 12 * k;
             text(c, now, nx, base, metaPaint, 0xD1FFFFFF, 1);
-            // The day ahead: today's forecast in the morning, tomorrow's in the evening.
-            String outlook = HomeData.outlook(wx, System.currentTimeMillis());
-            if (!outlook.isEmpty()) text(c, "·   " + outlook, nx + metaPaint.measureText(now) + 18 * k, base, metaPaint, 0xB3FFFFFF, 1);
+            // Then today's high and low, a little dimmer.
+            String range = HomeData.highLow(wx);
+            if (!range.isEmpty()) text(c, range, nx + metaPaint.measureText(now) + 22 * k, base, metaPaint, 0xB3FFFFFF, 1);
         }
 
         Recs.Pick p = currentPick();
