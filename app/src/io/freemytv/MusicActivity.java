@@ -199,7 +199,11 @@ public class MusicActivity extends Activity {
                 case KeyEvent.KEYCODE_DPAD_CENTER:
                 case KeyEvent.KEYCODE_ENTER:
                 case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
-                    if (t != null) { if (playing) t.pause(); else t.play(); }
+                    // Asked now, not remembered: a play sent to a playing Spotify brings its own screen up.
+                    if (t != null) {
+                        PlaybackState s = controller.getPlaybackState();
+                        if (s != null && s.getState() == PlaybackState.STATE_PLAYING) t.pause(); else t.play();
+                    }
                     return true;
                 case KeyEvent.KEYCODE_DPAD_LEFT:
                     if (t != null) t.skipToPrevious();

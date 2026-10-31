@@ -62,6 +62,10 @@ final class Config {
     static final String TMDB_KEY = "$(prop tmdb_key '')";
     static final String WATCHMODE_KEY = "$(prop watchmode_key '')";
     static final String TICKETMASTER_KEY = "$(prop ticketmaster_key '')";
+    static final String SPOTIFY_CLIENT_ID = "$(prop spotify_client_id '')";
+    static final String SPOTIFY_REFRESH_TOKEN = "$(prop spotify_refresh_token '')";
+    static final String SPOTIFY_EVERYWHERE = "$(prop spotify_everywhere Everywhere)";
+    static final String SPOTIFY_GENRE = "$(prop spotify_genre '')";
     static final String TMDB_REGION = "$(prop tmdb_region US)";
     static final String LATITUDE = "$LAT";
     static final String LONGITUDE = "$LON";
