@@ -220,6 +220,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final RectF weatherCard = new RectF(), quotesCard = new RectF();
     private final Spring drawer = new Spring(0.46f, 0.92f, 0);
     private boolean drawerOpen;
+    /** The last press on the home screen; MUSIC_IDLE_MS after it, with music playing, Now Playing opens (MusicActivity). */
+    private long keyAt;
+    private static final long MUSIC_IDLE_MS = 45_000;
     private int drawerIndex;
     private Spring[] camFocus = new Spring[0];
     private RectF[] camRects = new RectF[0];
@@ -375,6 +378,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             // The featured hero moves on by itself (on the Watch button too), except while something covers it or for
             // a while after you moved it yourself.
             if (picksOn() && !drawerOpen && !sheetOpen && SystemClock.uptimeMillis() - browsedAt >= 15_000) advance(1);
+            // Music on and the home screen left alone: Now Playing comes up by itself (Back comes home again).
+            if (!drawerOpen && !sheetOpen && !reordering && SystemClock.uptimeMillis() - keyAt >= MUSIC_IDLE_MS
+                    && Music.playing(getContext()) != null) {
+                keyAt = SystemClock.uptimeMillis();
+                MusicActivity.open(getContext());
+            }
             handler.postDelayed(this, 15_000);
         }
     };
@@ -448,6 +457,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         resumedAt = now;
         lastNanos = 0;
         lastStep = 0;
+        keyAt = now;
         data.addListener(this);
         recs.addListener(this);
         data.refreshIfStale();
@@ -2248,6 +2258,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     boolean onKey(KeyEvent e) {
         wake();
+        keyAt = SystemClock.uptimeMillis();
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
         if (reordering) return reorderKey(e, down);
         int code = e.getKeyCode();

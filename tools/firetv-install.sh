@@ -14,6 +14,8 @@ adb -s "$tv" install -r FreeMyTV.apk
 adb -s "$tv" shell pm grant io.freemytv android.permission.READ_TV_LISTINGS </dev/null
 # Home presses where no window changes (Amazon's settings, which are a page of its home screen): from the system log.
 adb -s "$tv" shell pm grant io.freemytv android.permission.READ_LOGS </dev/null
+# What music is playing (Now Playing): a notification listener that reads no notifications.
+adb -s "$tv" shell cmd notification allow_listener io.freemytv/io.freemytv.MusicListener </dev/null
 # Ours plus whatever else is on (TalkBack and the like), once.
 current=$(adb -s "$tv" shell settings get secure enabled_accessibility_services </dev/null | tr -d '\r')
 case ":$current:" in

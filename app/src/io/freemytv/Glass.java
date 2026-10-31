@@ -86,7 +86,7 @@ final class Glass {
      * Far softer than the home screen's glass copy (the screen behind these pages is a mood, not a picture): a third
      * the size, then three box blurs, so stretched to the screen it is smooth (a smaller copy alone shows its blocks).
      */
-    private static Bitmap soften(Bitmap src) {
+    static Bitmap soften(Bitmap src) {
         int w = Math.max(16, src.getWidth() / 3), h = Math.max(9, src.getHeight() / 3);
         Bitmap small = Bitmap.createScaledBitmap(src, w, h, true);
         if (small != src) src.recycle();
