@@ -338,7 +338,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 case STATUS: drawLightButtons(c); break;
                 case PLATTER: drawPlatter(c); break;
                 case TILES: drawTiles(c); break;
-                case DRAWER: drawDrawer(c); break;
+                case DRAWER:
+                    drawingDrawer = true;
+                    shadows.dither = true;
+                    drawDrawer(c);
+                    drawingDrawer = false;
+                    break;
                 case SHEET: drawSheet(c); break;
                 default: drawToast(c); break;
             }
@@ -1020,8 +1025,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** How dark it is: 0 = day, 1 = night (in between during the transition). */
     private float dark() {
-        return night;
+        return drawingDrawer ? 1 : night;
     }
+
+    /**
+     * The drawer is always in the night look, day or night: dark glass, white icons and text, gray for an input with
+     * nothing on (a dark glass reads as glass over the colorful background; light glass didn't).
+     */
+    private boolean drawingDrawer;
 
     /** The day color or the night color, depending on the night value (blended during the transition). */
     private int tone(int onLight, int onDark) {
@@ -1732,7 +1743,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             shadows.draw(c, tmp, radius, SHADOW_BLUR * k, shadow);
             scene.glass(c, r, radius, 0xFFFFFFFF, lightTint * 0.55f, 0, 0, 0.02f, 1, 1 - dk);
         }
-        if (dk > 0.001f) scene.glass(c, r, radius, SMOKE, 0.34f, 0, 0, 0.02f, 1, dk);
+        if (dk > 0.001f) scene.glass(c, r, radius, SMOKE, 0.58f, 0, 0, 0.02f, 1, dk);
     }
 
     private void drawerCard(Canvas c, RectF r) {
