@@ -3467,12 +3467,26 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** The weather card's moving sky: on while the card is on screen (and nothing covers it), off otherwise. */
     private void updateFx() {
         Recs.Pick p = running && featured() ? currentPick() : null;
-        boolean show = p != null && p.weather != null && !sheetOpen && !drawerOpen && drawer.value < 0.02f;
-        if (show) {
+        // To see another sky, over whichever pick is showing: adb shell setprop debug.freemytv.sky fog (or rain,night,
+        // snow,wind…; an empty value for the real one).
+        String test = systemProperty("debug.freemytv.sky");
+        boolean show = p != null && (p.weather != null || !test.isEmpty()) && !sheetOpen && !drawerOpen && drawer.value < 0.02f;
+        if (show && !test.isEmpty()) {
+            fx.scene(test.split(",")[0], !test.contains("night"), test.contains("wind"));
+        } else if (show) {
             HomeData.Weather wx = p.weather;
             fx.scene(HeroArt.kind(wx.code), wx.isDay, HeroArt.windy(wx));
         }
         fx.active(show);
+    }
+
+    private static String systemProperty(String key) {
+        try {
+            Object v = Class.forName("android.os.SystemProperties").getMethod("get", String.class).invoke(null, key);
+            return v == null ? "" : v.toString().trim();
+        } catch (ReflectiveOperationException e) {
+            return "";
+        }
     }
 
     /** A red "LIVE" pill on the label's line (a game on now); returns how far the label moves right. */

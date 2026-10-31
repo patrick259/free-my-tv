@@ -15,9 +15,11 @@ import java.util.Random;
 
 /**
  * The weather card's moving sky, over its photo (HeroArt.weather) and under the hero's text, the way the iPhone's
- * Weather app does it: rain falling, snow drifting down, fog rolling past, lightning flashing. (Drifting clouds and a
- * turning sun glow are here too, for a sky without its photo.) Only runs while the weather card is on screen (HomeView turns it on and off); everything
- * is drawn from a few small bitmaps and lines, so a frame stays cheap on the TV. Fainter on the left, under the text.
+ * Weather app does it, for every sky: thin wisps drifting high on a clear day, stars twinkling (and now and then one
+ * falling) on a clear night, clouds drifting past when it's partly cloudy, a heavier gray layer when overcast, fog
+ * rolling past, and dark clouds over the rain falling, the snow drifting down and the lightning. Faster when it's
+ * windy. Only runs while the weather card is on screen (HomeView turns it on and off); everything is drawn from a few
+ * small bitmaps and lines, so a frame stays cheap on the TV. Fainter on the left, under the text.
  */
 final class WeatherFx extends View implements Choreographer.FrameCallback {
     private static final long FADE_MS = 700;
@@ -37,7 +39,7 @@ final class WeatherFx extends View implements Choreographer.FrameCallback {
     private int[] cb = new int[0];
     private Bitmap[] clouds = new Bitmap[0];
     private Bitmap flake, rays;
-    private float flash, sunAngle;
+    private float flash, sunAngle, meteorX, meteorY;
     private long nextFlash;
 
     WeatherFx(Context c) {
@@ -80,8 +82,26 @@ final class WeatherFx extends View implements Choreographer.FrameCallback {
         build();
     }
 
-    private static boolean needsClouds(String kind) {
-        return kind.equals("fog");
+    private boolean needsClouds(String kind) {
+        return cloudCount(kind, day) > 0;
+    }
+
+    /** How many clouds (or fog banks) drift over the photo, for each sky. */
+    private static int cloudCount(String kind, boolean day) {
+        switch (kind) {
+            case "clear": return day ? 3 : 0;      // wisps; at night, stars instead
+            case "partly": return 4;
+            case "overcast": return 6;
+            case "fog": return 5;
+            case "storm": return 4;
+            case "rain": case "snow": return 3;
+            default: return 0;
+        }
+    }
+
+    /** Stars on a clear night. */
+    private boolean starry() {
+        return kind.equals("clear") && !day;
     }
 
     private void build() {
@@ -90,30 +110,41 @@ final class WeatherFx extends View implements Choreographer.FrameCallback {
         float k = w / 1920f;
         rnd.setSeed(kind.hashCode());
 
-        // Clouds (or fog banks), drawn once as soft heaps and moved.
-        // The sky is a photo (HeroArt.weather): only fog banks drift over it; the rest moves as rain, snow, lightning.
-        int n = kind.equals("fog") ? 5 : 0;
-        int color = !day ? 0xFF4A5778 : kind.equals("partly") ? 0xFFFFFFFF : kind.equals("overcast") ? 0xFFD3D8DE
+        // Clouds (or fog banks), drawn once as soft heaps and moved over the photo (HeroArt.weather).
+        int n = cloudCount(kind, day);
+        int color = !day ? 0xFF4A5778 : kind.equals("partly") || kind.equals("clear") ? 0xFFFFFFFF : kind.equals("overcast") ? 0xFFD3D8DE
                 : kind.equals("snow") ? 0xFFE8EDF2 : kind.equals("storm") ? 0xFF3A3D50 : kind.equals("fog") ? 0xFFFFFFFF : 0xFF7A8696;
         clouds = new Bitmap[Math.min(n, 3)];
         for (int i = 0; i < clouds.length; i++) {
-            clouds[i] = kind.equals("fog") ? bank(Math.round(1400 * k), Math.round(260 * k)) : cloud(Math.round((520 + 140 * i) * k), color, kind.equals("partly"));
+            clouds[i] = kind.equals("fog") ? bank(Math.round(1400 * k), Math.round(260 * k))
+                    : kind.equals("clear") ? wisp(Math.round((620 + 160 * i) * k))
+                    : cloud(Math.round((520 + 140 * i) * k), color, kind.equals("partly"));
         }
         cx = new float[n]; cy = new float[n]; cv = new float[n]; cs = new float[n]; cb = new int[n];
         for (int i = 0; i < n; i++) {
             cb[i] = i % Math.max(1, clouds.length);
             cs[i] = 0.8f + rnd.nextFloat() * 0.6f;
             cx[i] = rnd.nextFloat() * (w + 600 * k) - 300 * k;
-            cy[i] = kind.equals("fog") ? (250 + i * 150 + rnd.nextFloat() * 60) * k : (-40 + rnd.nextFloat() * (kind.equals("partly") ? 330 : 420)) * k;
-            cv[i] = (kind.equals("fog") ? 18 : 10 + rnd.nextFloat() * 14) * k * (rnd.nextBoolean() || kind.equals("fog") ? 1 : 0.7f) * (windy ? 3 : 1);
+            cy[i] = kind.equals("fog") ? (250 + i * 150 + rnd.nextFloat() * 60) * k
+                    : kind.equals("clear") ? (20 + i * 70 + rnd.nextFloat() * 40) * k
+                    : (-60 + rnd.nextFloat() * (kind.equals("partly") ? 300 : 360)) * k;
+            cv[i] = (kind.equals("fog") ? 18 : kind.equals("storm") ? 26 + rnd.nextFloat() * 18 : 8 + rnd.nextFloat() * 12) * k
+                    * (rnd.nextBoolean() || kind.equals("fog") ? 1 : 0.7f) * (windy ? 3 : 1);
         }
 
-        // Rain and snow.
-        int count = kind.equals("rain") ? 170 : kind.equals("storm") ? 220 : kind.equals("snow") ? 150 : 0;
+        // Rain and snow; or the stars of a clear night (pv: how fast each twinkles).
+        int count = kind.equals("rain") ? 170 : kind.equals("storm") ? 220 : kind.equals("snow") ? 150 : starry() ? 110 : 0;
         px = new float[count]; py = new float[count]; pv = new float[count]; ps = new float[count]; pp = new float[count];
         for (int i = 0; i < count; i++) {
             px[i] = rnd.nextFloat() * (w + 200 * k);
             py[i] = rnd.nextFloat() * h;
+            if (starry()) {
+                py[i] = rnd.nextFloat() * rnd.nextFloat() * h * 0.7f;     // more of them high up
+                pv[i] = 0.6f + rnd.nextFloat() * 1.8f;
+                ps[i] = (1.2f + rnd.nextFloat() * rnd.nextFloat() * 2.6f) * k;
+                pp[i] = rnd.nextFloat() * 6.28f;
+                continue;
+            }
             boolean snow = kind.equals("snow");
             float depth = rnd.nextFloat();     // far (small, slow, faint) to near
             pv[i] = (snow ? 40 + depth * 90 : 1300 + depth * 900) * k;
@@ -122,7 +153,7 @@ final class WeatherFx extends View implements Choreographer.FrameCallback {
         }
         if (kind.equals("snow")) flake = dot(Math.round(24 * k));
         rays = null;     // the photos have their own sun
-        nextFlash = SystemClock.uptimeMillis() + 2500;
+        nextFlash = SystemClock.uptimeMillis() + (starry() ? 6000 : 2500);
         flash = 0;
     }
 
@@ -150,7 +181,7 @@ final class WeatherFx extends View implements Choreographer.FrameCallback {
             if (b != null && cx[i] > w + 50 * k) cx[i] = -b.getWidth() * cs[i] - 50 * k;
         }
         boolean snow = kind.equals("snow");
-        for (int i = 0; i < px.length; i++) {
+        for (int i = 0; i < px.length && !starry(); i++) {
             py[i] += pv[i] * dt;
             // Wind: rain slants harder, snow blows sideways.
             px[i] += (snow ? (float) Math.sin(up / 900.0 + pp[i]) * 18 * k - (windy ? 160 * k : 0) : -pv[i] * (windy ? 0.6f : 0.22f)) * dt;
@@ -167,6 +198,15 @@ final class WeatherFx extends View implements Choreographer.FrameCallback {
                 nextFlash = up + 4500 + rnd.nextInt(7000);
             }
             flash = Math.max(0, flash - dt * 2.6f);
+        } else if (starry()) {
+            // Now and then a shooting star: `flash` runs from 1 to 0 as it crosses, from (meteorX, meteorY).
+            if (up >= nextFlash) {
+                flash = 1;
+                meteorX = (900 + rnd.nextFloat() * 800) * k;
+                meteorY = (40 + rnd.nextFloat() * 200) * k;
+                nextFlash = up + 14_000 + rnd.nextInt(18_000);
+            }
+            flash = Math.max(0, flash - dt * 1.4f);
         }
     }
 
@@ -182,10 +222,27 @@ final class WeatherFx extends View implements Choreographer.FrameCallback {
             c.drawBitmap(rays, 1460 * k - rays.getWidth() / 2f, 250 * k - rays.getHeight() / 2f, paint);
             c.restore();
         }
+        if (starry()) {
+            float t = SystemClock.uptimeMillis() / 1000f;
+            for (int i = 0; i < px.length; i++) {
+                float tw = 0.5f + 0.5f * (float) Math.sin(t * pv[i] + pp[i]);
+                line.setColor(Ui.alpha(0xFFF4F7FF, alpha * fade(px[i], w) * (0.25f + 0.7f * tw)));
+                c.drawCircle(px[i], py[i], ps[i], line);
+            }
+            if (flash > 0.001f) {
+                float p = 1 - flash, len = 260 * k, x = meteorX + p * 520 * k, y = meteorY + p * 240 * k;
+                line.setStrokeWidth(2.2f * k);
+                line.setShader(new LinearGradient(x, y, x - len, y - len * 0.46f, Ui.alpha(0xFFFFFFFF, alpha * Math.min(1, flash * 2)),
+                        0x00FFFFFF, Shader.TileMode.CLAMP));
+                c.drawLine(x, y, x - len, y - len * 0.46f, line);
+                line.setShader(null);
+            }
+        }
+        float strength = kind.equals("fog") ? 0.5f : kind.equals("clear") ? 0.9f : kind.equals("partly") ? 0.85f : 0.72f;
         for (int i = 0; i < cx.length; i++) {
             Bitmap b = clouds[cb[i]];
             float s = cs[i];
-            paint.setAlpha(Math.round(255 * alpha * fade(cx[i] + b.getWidth() * s / 2, w) * (kind.equals("fog") ? 0.5f : 0.9f)));
+            paint.setAlpha(Math.round(255 * alpha * fade(cx[i] + b.getWidth() * s / 2, w) * strength));
             c.save();
             c.translate(cx[i], cy[i]);
             c.scale(s, s);
@@ -207,7 +264,7 @@ final class WeatherFx extends View implements Choreographer.FrameCallback {
                 c.drawBitmap(flake, null, new android.graphics.RectF(px[i] - size / 2, py[i] - size / 2, px[i] + size / 2, py[i] + size / 2), paint);
             }
         }
-        if (flash > 0.001f) {
+        if (flash > 0.001f && kind.equals("storm")) {
             // Two quick pulses, like lightning behind the clouds.
             float f = flash > 0.75f ? (flash - 0.75f) * 4 : flash > 0.45f ? 0.25f : flash * 0.9f;
             c.drawColor(Ui.alpha(0xFFE8E6FF, alpha * Math.min(0.42f, f * 0.55f)));
@@ -244,6 +301,24 @@ final class WeatherFx extends View implements Choreographer.FrameCallback {
         p.setShader(new LinearGradient(0, height * 0.45f, 0, height * 0.85f, Ui.alpha(color, 0.75f), Ui.alpha(darken(color, 0.25f), 0),
                 Shader.TileMode.CLAMP));
         c.drawRoundRect(width * 0.08f, height * 0.45f, width * 0.92f, height * 0.85f, height * 0.2f, height * 0.2f, p);
+        return b;
+    }
+
+    /** A cirrus wisp: a long streak of small soft puffs along a gentle curve, thinning at both ends. */
+    private Bitmap wisp(int width) {
+        int height = Math.round(width * 0.22f);
+        Bitmap b = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        float bend = (rnd.nextFloat() - 0.5f) * height * 0.5f;
+        for (int i = 0; i < 40; i++) {
+            float t = rnd.nextFloat(), thick = (float) Math.sin(Math.PI * t);
+            float x = width * (0.06f + 0.88f * t), y = height * 0.5f + bend * (float) Math.sin(Math.PI * t) + (rnd.nextFloat() - 0.5f) * height * 0.3f * thick;
+            float r = height * (0.08f + 0.16f * thick * rnd.nextFloat());
+            p.setShader(new RadialGradient(x, y, r, new int[] {Ui.alpha(0xFFFFFFFF, 0.22f + 0.2f * thick), 0x00FFFFFF}, null,
+                    Shader.TileMode.CLAMP));
+            c.drawOval(x - r * 2.4f, y - r, x + r * 2.4f, y + r, p);
+        }
         return b;
     }
 
