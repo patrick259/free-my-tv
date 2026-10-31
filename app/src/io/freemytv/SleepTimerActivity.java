@@ -30,11 +30,7 @@ public class SleepTimerActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(px(48), px(40), px(48), px(40));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xF5141418);
-        bg.setCornerRadius(px(30));
-        bg.setStroke(px(2), 0x33FFFFFF);
-        card.setBackground(bg);
+        card.setBackground(Glass.plate(card, px(30)));
 
         card.addView(text(Ui.tr("Sleep Timer"), 44, 0xFFF5F5F7, Ui.displaySemibold));
         long end = SleepTimer.end(this);

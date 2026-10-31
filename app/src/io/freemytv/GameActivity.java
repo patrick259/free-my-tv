@@ -67,7 +67,8 @@ public class GameActivity extends Activity {
         event = getIntent().getStringExtra(EXTRA_EVENT);
         session = getIntent().getIntExtra(EXTRA_SESSION, -1);
         scroll = new ScrollView(this);
-        scroll.setBackgroundColor(BG);
+        scroll.setBackground(Glass.page(scroll));
+        scroll.setOnScrollChangeListener((v, x, y, ox, oy) -> Glass.refresh(scroll));
         scroll.setVerticalScrollBarEnabled(false);
         scroll.setFocusable(true);
         scroll.setFocusableInTouchMode(true);     // keeps focus if Fire OS switches to touch mode (else the next arrow is eaten)
@@ -277,10 +278,7 @@ public class GameActivity extends Activity {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(px(48), px(40), px(48), px(36));
-        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[] {awayBand, mix(awayBand, BG, 0.7f), mix(homeBand, BG, 0.7f), homeBand});
-        bg.setCornerRadius(px(32));
-        box.setBackground(bg);
+        box.setBackground(Glass.plate(box, px(32), awayBand, homeBand, 0.5f));
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         boolean post = state.equals("post");
@@ -540,7 +538,7 @@ public class GameActivity extends Activity {
         LinearLayout t = new LinearLayout(this);
         t.setOrientation(LinearLayout.VERTICAL);
         t.setPadding(px(20), px(16), px(20), px(18));
-        t.setBackground(round(0x12FFFFFF, 16));
+        t.setBackground(Glass.plate(t, px(16)));
         t.addView(text(label.toUpperCase(Ui.locale()), 18, DIM, Ui.semibold));
         TextView v = text(value, value.contains("\n") ? 24 : 32, INK, Ui.semibold);
         v.setSingleLine(false);
@@ -746,9 +744,7 @@ public class GameActivity extends Activity {
         LinearLayout band = new LinearLayout(this);
         band.setGravity(Gravity.CENTER_VERTICAL);
         band.setPadding(px(48), px(36), px(48), px(36));
-        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[] {0xFF9E0500, 0xFF3A0300, CARD});
-        bg.setCornerRadius(px(32));
-        band.setBackground(bg);
+        band.setBackground(Glass.plate(band, px(32), 0xFFE10600, 0xFF5A0400, 0.42f));
         LinearLayout words = new LinearLayout(this);
         words.setOrientation(LinearLayout.VERTICAL);
         String flagUrl = Sports.flagUrl(full);
@@ -880,11 +876,7 @@ public class GameActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(px(32), px(26), px(32), px(30));
-        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[] {mix(accent[0], CARD, 0.8f), CARD, CARD});
-        bg.setCornerRadius(px(24));
-        bg.setStroke(Math.max(1, px(1.5f)), 0x14FFFFFF);
-        card.setBackground(bg);
+        card.setBackground(Glass.plate(card, px(24), accent[0], accent[accent.length - 1], 0.14f));
         LinearLayout head = new LinearLayout(this);
         head.setGravity(Gravity.CENTER_VERTICAL);
         head.setPadding(0, 0, 0, px(18));

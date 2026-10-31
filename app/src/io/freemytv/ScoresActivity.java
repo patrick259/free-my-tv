@@ -76,7 +76,7 @@ public class ScoresActivity extends Activity {
         k = getResources().getDisplayMetrics().widthPixels / 1920f;
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(BG);
+        root.setBackground(Glass.page(root));
         root.setPadding(px(80), px(52), px(80), px(40));
         LinearLayout head = new LinearLayout(this);
         head.setGravity(Gravity.CENTER_VERTICAL);
@@ -189,7 +189,7 @@ public class ScoresActivity extends Activity {
         for (int i = 0; i < tabs.getChildCount(); i++) {
             TextView t = (TextView) tabs.getChildAt(i);
             boolean on = i == current, focused = t.isFocused();
-            t.setBackground(on ? pill(focused ? CARD_FOCUS : 0x33FFFFFF) : null);
+            t.setBackground(on ? (focused ? pill(CARD_FOCUS) : Glass.focused(t, px(40))) : null);
             t.setTextColor(on && focused ? BG : on ? INK : DIM);
         }
     }
@@ -288,6 +288,7 @@ public class ScoresActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
         scroll.setClipToPadding(false);
+        scroll.setOnScrollChangeListener((v, x, y, ox, oy) -> Glass.refresh(scroll));
         // Room around the cards for the focused one (3% larger, with its white border) inside the scroll's edges.
         scroll.setPadding(px(16), px(16), px(16), px(16));
         GridLayout grid = new GridLayout(this);
@@ -341,9 +342,7 @@ public class ScoresActivity extends Activity {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(px(26), px(24), px(26), px(26));
-        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {0xFF2A2A10, CARD, CARD});
-        bg.setCornerRadius(px(24));
-        box.setBackground(bg);
+        box.setBackground(Glass.plate(box, px(24), 0xFFFFD60A, 0xFFFFD60A, 0.08f));
         String week = poll.optJSONObject("occurrence") == null ? "" : poll.optJSONObject("occurrence").optString("displayValue");
         TextView head = text((poll.optString("shortName", "AP Poll").replace("Poll", "Top 25") + (week.isEmpty() ? "" : "  ·  " + week)).toUpperCase(Ui.locale()),
                 21, 0xFFFFD60A, Ui.semibold);
@@ -448,9 +447,9 @@ public class ScoresActivity extends Activity {
             card.setFocusableInTouchMode(true);     // keeps focus if Fire OS switches to touch mode (else the next arrow is eaten)
             // A wash of each team's color from its side (away left, home right).
             int away0 = GameActivity.ink(GameActivity.teamColors(away)), home0 = GameActivity.ink(GameActivity.teamColors(home));
-            card.setBackground(tint(away0, home0, false));
+            card.setBackground(Glass.plate(card, px(18), away0, home0, 0.32f));
             card.setOnFocusChangeListener((v, has) -> {
-                v.setBackground(tint(away0, home0, has));
+                v.setBackground(has ? Glass.focused(v, px(18), away0, home0, 0.42f) : Glass.plate(v, px(18), away0, home0, 0.32f));
                 v.animate().scaleX(has ? 1.03f : 1).scaleY(has ? 1.03f : 1).setDuration(150).start();
             });
             boolean pre = state.equals("pre");
@@ -585,9 +584,7 @@ public class ScoresActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(px(36), px(32), px(36), px(32));
-        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[] {0xFF9E0500, 0xFF3A0300, CARD});
-        bg.setCornerRadius(px(28));
-        card.setBackground(bg);
+        card.setBackground(Glass.plate(card, px(28), 0xFFE10600, 0xFF5A0400, 0.4f));
         String name = race.optString("name");
         JSONObject circuit = race.optJSONObject("circuit");
         String city = circuit == null || circuit.optJSONObject("address") == null ? "" : circuit.optJSONObject("address").optString("city");
@@ -693,7 +690,7 @@ public class ScoresActivity extends Activity {
             LinearLayout row = new LinearLayout(this);
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(px(16), px(10), px(20), px(10));
-            if (i == 0) row.setBackground(round(0xFF26262C));     // the standings are to read: nothing here takes focus
+            if (i == 0) row.setBackground(Glass.plate(row, px(18)));     // the standings are to read: nothing here takes focus
             TextView rank = text(stat(entry, "rank"), 24, DIM, Ui.semibold);
             rank.setGravity(Gravity.END);
             row.addView(rank, new LinearLayout.LayoutParams(px(40), ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -933,16 +930,6 @@ public class ScoresActivity extends Activity {
         t.setTextSize(TypedValue.COMPLEX_UNIT_PX, size * k);
         t.setIncludeFontPadding(false);
         return t;
-    }
-
-    private GradientDrawable tint(int away, int home, boolean focused) {
-        int base = focused ? 0xFF34343C : CARD;
-        float f = focused ? 0.66f : 0.74f;
-        GradientDrawable d = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[] {GameActivity.mix(away, base, f), base, GameActivity.mix(home, base, f)});
-        d.setCornerRadius(px(18));
-        if (focused) d.setStroke(px(3), 0xE6FFFFFF);
-        return d;
     }
 
     private GradientDrawable round(int color) {

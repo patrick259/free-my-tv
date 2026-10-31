@@ -906,6 +906,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         panAt = up;
         bgTo = b;
         bgFadeAt = up;
+        // The other screens' glass shows this photo too (they run in another process: a small copy in a file).
+        if (b != null && b.lightGlass != null) {
+            Context app = getContext().getApplicationContext();
+            LOADER.execute(() -> Glass.save(app, b.lightGlass));
+        }
         nightPair = false;
         if (b == null || glassOf(b) == null) return;
         if (bgFrom == null || glassOf(bgFrom) == null) {
@@ -1715,9 +1720,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             tmp.offset(0, drop);
             shadow.setColor(Ui.alpha(shadowColor, 1 - dk));
             shadows.draw(c, tmp, radius, SHADOW_BLUR * k, shadow);
-            scene.glass(c, r, radius, 0xFFFFFFFF, lightTint, 0, 0, 0.02f, 1, 1 - dk);
+            scene.glass(c, r, radius, 0xFFFFFFFF, lightTint * 0.8f, 0, 0, 0.02f, 1, 1 - dk);
         }
-        if (dk > 0.001f) scene.glass(c, r, radius, SMOKE, 0.4f, 0, 0, 0.02f, 1, dk);
+        if (dk > 0.001f) scene.glass(c, r, radius, SMOKE, 0.34f, 0, 0, 0.02f, 1, dk);
     }
 
     private void drawerCard(Canvas c, RectF r) {
@@ -3653,7 +3658,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             tmp.offset(0, (6 + 8 * f) * k);
             shadow.setColor(Ui.alpha(0xFF000000, (tone(0.1f, 0.3f) + tone(0.14f, 0.2f) * f) * seen));
             shadows.draw(c, tmp, rad, SHADOW_BLUR * k, shadow);
-            scene.liquid(c, cell, rad, tone(0xFFFFFFFF, SMOKE), tone(0.55f, 0.5f), tone(0.02f, 0.01f), 12 * k, 8 * k,
+            scene.liquid(c, cell, rad, tone(0xFFFFFFFF, SMOKE), tone(0.2f, 0.22f), tone(0.02f, 0.01f), 12 * k, 8 * k,
                     tone(0.6f, 0.45f), (1 - f) * TOP_REST);
             if (f > 0.01f) {
                 fill.setShader(null);
