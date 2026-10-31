@@ -508,8 +508,8 @@ final class Recs {
     private static final String NOT_SHOWS = "10763,10767,10764";
 
     /**
-     * What's New, as Den has it: the new movies, the shows with a new episode this week, and what's popular, each only
-     * from the TV's services. One query per service and row (so each title knows its app without asking for its
+     * What's New, as Den has it: movies just come to streaming, the shows with a new episode this week, and what's
+     * popular, each only from the TV's services and in English (not every new title from everywhere). One query per service and row (so each title knows its app without asking for its
      * details), the services taking turns, a title only once. Kept six hours. Blocks: call it off the main thread.
      */
     synchronized List<Row> whatsNew() throws Exception {
@@ -522,13 +522,16 @@ final class Recs {
             if (sv != null && installed(sv[2]) && !services.containsValue(sv)) services.put(o.getInt("provider_id"), sv);
         }
         if (services.isEmpty()) throw new IOException(NO_APPS);
+        // Only what people here would watch: English-language titles that enough people have rated; the movies are
+        // ones that played in theaters and have since come to streaming (released 3 weeks to 8 months ago).
+        String en = "&with_original_language=en";
         String[][] rows = {
-            {Ui.tr("New Movies"), "movie", "&primary_release_date.gte=" + day(-120) + "&primary_release_date.lte=" + day(0)
-                    + "&vote_count.gte=10" + without(false)},
-            {Ui.tr("New Episodes This Week"), "tv", "&air_date.gte=" + day(-7) + "&air_date.lte=" + day(3)
+            {Ui.tr("New to Streaming"), "movie", "&primary_release_date.gte=" + day(-240) + "&primary_release_date.lte=" + day(-21)
+                    + "&with_release_type=3&vote_count.gte=80" + en + without(false)},
+            {Ui.tr("New Episodes This Week"), "tv", "&air_date.gte=" + day(-7) + "&air_date.lte=" + day(3) + "&vote_count.gte=40" + en
                     + "&without_genres=" + NOT_SHOWS + without(true).replace("&without_genres=", ",")},
-            {Ui.tr("Popular Movies on Your Apps"), "movie", "&vote_count.gte=50" + without(false)},
-            {Ui.tr("Popular Shows on Your Apps"), "tv", "&vote_count.gte=50&without_genres=" + NOT_SHOWS
+            {Ui.tr("Popular Movies on Your Apps"), "movie", "&vote_count.gte=500" + en + without(false)},
+            {Ui.tr("Popular Shows on Your Apps"), "tv", "&vote_count.gte=200" + en + "&without_genres=" + NOT_SHOWS
                     + without(true).replace("&without_genres=", ",")},
         };
         java.util.Set<String> seen = new java.util.HashSet<>();
