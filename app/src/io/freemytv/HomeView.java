@@ -1743,7 +1743,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             shadows.draw(c, tmp, radius, SHADOW_BLUR * k, shadow);
             scene.glass(c, r, radius, 0xFFFFFFFF, lightTint * 0.55f, 0, 0, 0.02f, 1, 1 - dk);
         }
-        if (dk > 0.001f) scene.glass(c, r, radius, SMOKE, 0.58f, 0, 0, 0.02f, 1, dk);
+        if (dk > 0.001f) scene.glass(c, r, radius, SMOKE, 0.4f, 0, 0, 0.02f, 1, dk);
     }
 
     private void drawerCard(Canvas c, RectF r) {
