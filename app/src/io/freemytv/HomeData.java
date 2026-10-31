@@ -453,10 +453,10 @@ final class HomeData {
         }
     }
 
-    /** Today's high and low, as on the Apple TV: "H:66° L:53°" ("" before the forecast is in). */
+    /** Today's high and low: "66°/53°" ("" before the forecast is in). */
     static String highLow(Weather wx) {
         if (wx.days.isEmpty()) return "";
-        return Ui.trf("H:{high} L:{low}", "high", degrees(wx.dayMax.get(0)), "low", degrees(wx.dayMin.get(0)));
+        return degrees(wx.dayMax.get(0)) + "/" + degrees(wx.dayMin.get(0));
     }
 
     /** "Sun", "Mon"…: a day of the forecast. */
