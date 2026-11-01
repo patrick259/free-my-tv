@@ -22,9 +22,9 @@ import java.util.Calendar;
 
 /**
  * Liquid Glass for the screens beside the home screen (Scores, a game, Settings, Cameras, the sleep timer…), in their
- * dark look. Behind them, the home screen's featured photo, softly blurred and darkened (the home screen keeps a small
- * copy in a file, since these screens run in another process), or else a sky for the time of day (dawn, day, dusk,
- * night). On it, glass surfaces: that same picture showing through where the surface is, a little lighter, under a
+ * dark look. Behind them, the sky of the home screen's weather card (assets/weather: the forecast's sky for the hour,
+ * named in a file since these screens run in another process; else one for the time of day), darkened: a mood that
+ * follows the day, not whatever the hero happens to feature. On it, glass surfaces: that same picture showing through where the surface is, a little lighter, under a
  * smoke tint, with a band along the edge showing it slightly magnified (the thick rim bending the light) and a rim
  * bright along the top. No live blur (Fire OS 7 and Android 12 have none): the picture is already blurred.
  */
@@ -36,42 +36,48 @@ final class Glass {
      * sharp (darkened for the text), the glass shows it soft, brighter and richer. PAGE_DIM and GLASS_DIM: how much
      * darker each is.
      */
-    private static final float PAGE_DIM = 0.3f, GLASS_DIM = 0f;
-    private static final String FILE = "glass-backdrop.png";
+    private static final float PAGE_DIM = 0.4f, GLASS_DIM = 0f;
+    private static final String FILE = "glass-sky.txt";
 
     private static Bitmap sharp, soft;
     private static BitmapShader sharpShader, softShader;
-    private static long imageStamp = -1, skyHour = -1;
+    private static String shown;
 
-    /** From the home screen when its featured photo changes: the glass copy (Backdrop.GW × GH), kept for the others. */
-    static void save(Context c, int[] px) {
-        if (px == null || px.length != Backdrop.GW * Backdrop.GH) return;
-        Bitmap b = Bitmap.createBitmap(px, Backdrop.GW, Backdrop.GH, Bitmap.Config.ARGB_8888);
-        File f = new File(c.getFilesDir(), FILE), part = new File(c.getFilesDir(), FILE + ".part");
-        try (FileOutputStream out = new FileOutputStream(part)) {
-            b.compress(Bitmap.CompressFormat.PNG, 100, out);
+    /** From the weather card when its sky changes (HeroArt.photoName): the photo the other screens show behind. */
+    static void saveSky(Context c, String name) {
+        File f = new File(c.getApplicationContext().getFilesDir(), FILE);
+        try {
+            if (f.exists() && name.equals(new String(java.nio.file.Files.readAllBytes(f.toPath()), "UTF-8").trim())) return;
+            try (FileOutputStream out = new FileOutputStream(f)) {
+                out.write(name.getBytes("UTF-8"));
+            }
         } catch (Exception e) {
-            AppLog.w("glass backdrop: " + e.getMessage());
-            return;
-        } finally {
-            b.recycle();
+            AppLog.w("glass sky: " + e.getMessage());
         }
-        //noinspection ResultOfMethodCallIgnored
-        part.renameTo(f);
     }
 
-    /** The picture (the home screen's latest, else this hour's sky) in its two versions, read again when it changed. */
+    /** The picture in its two versions, read again when the sky changed (or, with no forecast yet, the hour). */
     private static synchronized void load(Context c) {
+        String name = null;
         File f = new File(c.getApplicationContext().getFilesDir(), FILE);
-        long stamp = f.exists() ? f.lastModified() : 0;
-        long hour = System.currentTimeMillis() / 3_600_000;
-        if (sharpShader != null && stamp == imageStamp && (stamp != 0 || hour == skyHour)) return;
-        Bitmap b = stamp != 0 ? BitmapFactory.decodeFile(f.getPath()) : null;
-        if (b == null) {
-            b = sky();
-            skyHour = hour;
+        try {
+            // Hours old: the weather card hasn't been up since, so the hour's own sky rather than this morning's.
+            if (f.exists() && System.currentTimeMillis() - f.lastModified() < 3 * 3_600_000L)
+                name = new String(java.nio.file.Files.readAllBytes(f.toPath()), "UTF-8").trim();
+        } catch (Exception ignored) {}
+        if (name == null || name.isEmpty()) {
+            int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+            name = h >= 6 && h < 8 ? "clear_golden" : h >= 8 && h < 17 ? "partly_day" : h >= 17 && h < 19 ? "dusk_clouds" : "clear_night";
         }
-        imageStamp = stamp;
+        if (sharpShader != null && name.equals(shown)) return;
+        Bitmap b = null;
+        try (java.io.InputStream in = c.getAssets().open("weather/" + name + ".jpg")) {
+            BitmapFactory.Options o = new BitmapFactory.Options();
+            o.inSampleSize = 2;
+            b = BitmapFactory.decodeStream(in, null, o);
+        } catch (Exception ignored) {}
+        if (b == null) b = sky();
+        shown = name;
         sharp = b;
         soft = soften(b.copy(Bitmap.Config.ARGB_8888, true));
         sharpShader = filtered(sharp);

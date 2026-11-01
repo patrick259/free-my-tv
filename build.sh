@@ -87,6 +87,7 @@ final class Config {
     static final String HA_URL = "$HA_URL";
     static final String HA_TOKEN = "$(prop ha_token '')";
     static final String HA_CAMERAS = "$(prop ha_cameras '')";
+    static final String HA_THERMOSTATS = "$(prop ha_thermostats '')";
 }
 EOF
 

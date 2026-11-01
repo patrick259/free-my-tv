@@ -921,11 +921,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         panAt = up;
         bgTo = b;
         bgFadeAt = up;
-        // The other screens' glass shows this photo too (they run in another process: a small copy in a file).
-        if (b != null && b.lightGlass != null) {
-            Context app = getContext().getApplicationContext();
-            LOADER.execute(() -> Glass.save(app, b.lightGlass));
-        }
         nightPair = false;
         if (b == null || glassOf(b) == null) return;
         if (bgFrom == null || glassOf(bgFrom) == null) {
@@ -1810,15 +1805,32 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         boolean off = it.kind == HomeApps.INPUT && !it.connected;
         int ink = blend(tone(off ? 0xFF8E8E93 : L_INK, off ? 0x6BFFFFFF : 0xF2FFFFFF), INK, f);
-        Symbols.draw(getContext(), c, it.symbol, cx, cell.top + cell.height() * 0.4f, 34 * k * s, ink);
         drawerLabel.setColor(ink);
         drawerLabel.setTextSize(23 * k * s);
         float room = cell.width() - 16 * k, wide = drawerLabel.measureText(it.label);
-        // A long name ("Home Settings", an input you renamed) shrinks a little before it gets cut.
-        if (wide > room) drawerLabel.setTextSize(Math.max(18 * k * s, 23 * k * s * room / wide));
-        fitPaint.set(drawerLabel);
-        String label = TextUtils.ellipsize(it.label, fitPaint, room, TextUtils.TruncateAt.END).toString();
-        c.drawText(label, cx, cell.top + cell.height() * 0.8f, drawerLabel);
+        // A long name ("Home Settings", "Now Playing") goes on two lines, split at the space nearest the middle, as
+        // tvOS does; a single long word (an input you renamed) shrinks a little before it gets cut.
+        int split = -1;
+        if (wide > room) {
+            for (int at = it.label.indexOf(' '); at > 0; at = it.label.indexOf(' ', at + 1))
+                if (split < 0 || Math.abs(at - it.label.length() / 2f) < Math.abs(split - it.label.length() / 2f)) split = at;
+        }
+        if (split > 0) {
+            String one = it.label.substring(0, split), two = it.label.substring(split + 1);
+            float line = Math.max(drawerLabel.measureText(one), drawerLabel.measureText(two));
+            drawerLabel.setTextSize(Math.max(17 * k * s, Math.min(21 * k * s, 23 * k * s * room / line)));
+            fitPaint.set(drawerLabel);
+            Symbols.draw(getContext(), c, it.symbol, cx, cell.top + cell.height() * 0.32f, 32 * k * s, ink);
+            float lead = drawerLabel.getTextSize() * 1.12f, y = cell.top + cell.height() * 0.71f;
+            c.drawText(TextUtils.ellipsize(one, fitPaint, room, TextUtils.TruncateAt.END).toString(), cx, y, drawerLabel);
+            c.drawText(TextUtils.ellipsize(two, fitPaint, room, TextUtils.TruncateAt.END).toString(), cx, y + lead, drawerLabel);
+        } else {
+            if (wide > room) drawerLabel.setTextSize(Math.max(18 * k * s, 23 * k * s * room / wide));
+            fitPaint.set(drawerLabel);
+            Symbols.draw(getContext(), c, it.symbol, cx, cell.top + cell.height() * 0.4f, 34 * k * s, ink);
+            String label = TextUtils.ellipsize(it.label, fitPaint, room, TextUtils.TruncateAt.END).toString();
+            c.drawText(label, cx, cell.top + cell.height() * 0.8f, drawerLabel);
+        }
         drawerLabel.setTextSize(23 * k);
     }
 

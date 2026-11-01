@@ -72,6 +72,8 @@ final class HomeApps {
     static final int WHATS_NEW = 13;
     /** Music suggestions from Spotify (MusicPicksActivity), when spotify_client_id is signed in. */
     static final int MUSIC_PICKS = 14;
+    /** The thermostats from Home Assistant (ThermostatActivity), when ha_url and ha_token are set. */
+    static final int THERMOSTAT = 15;
     static final String VENEZIA = "com.amazon.venezia";
     /** Image size of each card (16:9; on screen it shows up to ~330 px wide). */
     static final int TILE_W = 384, TILE_H = 216;
@@ -336,6 +338,7 @@ final class HomeApps {
         items.add(shortcut(ALL_APPS, "all", Ui.tr("All Apps"), "apps"));
         items.add(shortcut(SCORES, "scores", Ui.tr("Scores"), "scoreboard"));
         if (CAMERAS_ON) items.add(shortcut(CAMERAS, "cameras", Ui.tr("Cameras"), "videocam"));
+        if (Thermostats.on()) items.add(shortcut(THERMOSTAT, "thermostat", Ui.tr("Thermostat"), "thermostat"));
         if (Recs.hasKey(c)) items.add(shortcut(WHATS_NEW, "whats-new", Ui.tr("What's New"), "sparkles"));
         if (Spotify.on()) items.add(shortcut(MUSIC_PICKS, "music-picks", Ui.tr("Music"), "play"));
         if (Music.enabled(c)) items.add(shortcut(NOW_PLAYING, "now-playing", Ui.tr("Now Playing"), "speaker"));
@@ -565,6 +568,9 @@ final class HomeApps {
                 break;
             case MUSIC_PICKS:
                 intent = new Intent(a, MusicPicksActivity.class);
+                break;
+            case THERMOSTAT:
+                intent = new Intent(a, ThermostatActivity.class);
                 break;
             case SLEEP_TIMER:
                 intent = new Intent(a, SleepTimerActivity.class);

@@ -145,7 +145,9 @@ final class HeroArt {
 
         // A photo for the sky (assets/weather, made for this card), filling the frame; the painted sky below is the
         // fallback when one is missing.
-        Bitmap photo = photo(ctx, photoName(kind, day, golden));
+        String name = photoName(kind, day, golden);
+        Glass.saveSky(ctx, name);     // the other screens show this sky behind them
+        Bitmap photo = photo(ctx, name);
         if (photo != null) {
             float scale = Math.max(w / (float) photo.getWidth(), h / (float) photo.getHeight());
             float pw = photo.getWidth() * scale, ph = photo.getHeight() * scale;
