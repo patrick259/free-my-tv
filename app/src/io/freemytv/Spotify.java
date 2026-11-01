@@ -180,13 +180,20 @@ final class Spotify {
         try {
             api(c, "PUT", "me/player/play" + dev, body);
         } catch (HttpError e) {
-            // A sleeping speaker: move the session to it first, then play.
+            // A sleeping speaker: move the session to it first, then play. An Alexa group takes several seconds to wake.
             if (e.code != 404 && e.code != 502) throw e;
             JSONObject move = new JSONObject();
             try { move.put("device_ids", new JSONArray().put(d.id)).put("play", false); } catch (org.json.JSONException ignored) {}
             api(c, "PUT", "me/player", move);
-            Thread.sleep(1500);
-            api(c, "PUT", "me/player/play" + dev, body);
+            for (int i = 0; ; i++) {
+                Thread.sleep(2000);
+                try {
+                    api(c, "PUT", "me/player/play" + dev, body);
+                    break;
+                } catch (HttpError again) {
+                    if (i == 5 || (again.code != 404 && again.code != 502)) throw again;
+                }
+            }
         }
         try {
             api(c, "PUT", "me/player/shuffle?state=" + pick.shuffle + "&device_id=" + enc(d.id), null);
