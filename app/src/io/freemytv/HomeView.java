@@ -223,7 +223,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** The last press on the home screen; MUSIC_IDLE_MS after it, with music playing, Now Playing opens (MusicActivity). */
     private long keyAt;
     private static final long MUSIC_IDLE_MS = 45_000;
-    /** Left alone this long, with no music on, the home screen gives way to the depth clock (DepthClockActivity). */
+    /** Left alone this long, the home screen gives way to the scenes and their clock (DepthClockActivity), with the song if music is on. */
     private static final long SCENE_IDLE_MS = 20_000;
     private final Runnable sceneCheck = new Runnable() {
         @Override public void run() {
@@ -234,7 +234,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 return;
             }
             keyAt = SystemClock.uptimeMillis();
-            if (!drawerOpen && !sheetOpen && !reordering && Music.playing(getContext()) == null) DepthClockActivity.open(getContext());
+            if (!drawerOpen && !sheetOpen && !reordering) DepthClockActivity.open(getContext());
             else handler.postDelayed(this, SCENE_IDLE_MS);
         }
     };
@@ -399,8 +399,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             // The featured hero moves on by itself (on the Watch button too), except while something covers it or for
             // a while after you moved it yourself.
             if (picksOn() && !drawerOpen && !sheetOpen && SystemClock.uptimeMillis() - browsedAt >= 15_000) advance(1);
-            // Music on and the home screen left alone: Now Playing comes up by itself (Back comes home again).
-            if (!drawerOpen && !sheetOpen && !reordering && SystemClock.uptimeMillis() - keyAt >= MUSIC_IDLE_MS
+            // Music on and the home screen left alone: Now Playing comes up by itself (Back comes home again), unless the
+            // scenes do (they show the song).
+            if (!sceneOn && !drawerOpen && !sheetOpen && !reordering && SystemClock.uptimeMillis() - keyAt >= MUSIC_IDLE_MS
                     && Music.playing(getContext()) != null) {
                 keyAt = SystemClock.uptimeMillis();
                 MusicActivity.open(getContext());

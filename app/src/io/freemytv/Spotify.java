@@ -201,6 +201,60 @@ final class Spotify {
         return d.name;
     }
 
+    /** What Spotify is playing anywhere (this TV, a speaker group) and what comes next in its queue. */
+    static final class Now {
+        String title, artist, image, device, nextTitle, nextArtist;
+        boolean playing;
+        long progress, duration, readAt;
+    }
+
+    /** Null when nothing is playing or paused. Runs on a background thread. */
+    static Now now(Context c) throws IOException {
+        JSONObject p = api(c, "GET", "me/player", null);
+        if (p == null || p.optJSONObject("item") == null) return null;
+        Now n = new Now();
+        JSONObject item = p.optJSONObject("item");
+        n.readAt = android.os.SystemClock.uptimeMillis();
+        n.playing = p.optBoolean("is_playing");
+        n.progress = p.optLong("progress_ms");
+        n.duration = item.optLong("duration_ms");
+        JSONObject dev = p.optJSONObject("device");
+        n.device = dev == null ? "" : dev.optString("name");
+        n.title = item.optString("name");
+        n.artist = artists(item);
+        n.image = image(item);
+        try {
+            JSONObject q = api(c, "GET", "me/player/queue", null);
+            JSONArray next = q == null ? null : q.optJSONArray("queue");
+            JSONObject first = next == null || next.length() == 0 ? null : next.optJSONObject(0);
+            if (first != null) {
+                n.nextTitle = first.optString("name");
+                n.nextArtist = artists(first);
+            }
+        } catch (IOException ignored) {}   // the queue is a nicety
+        return n;
+    }
+
+    /** A track's artists ("A, B"), or an episode's show. */
+    private static String artists(JSONObject item) {
+        JSONArray a = item.optJSONArray("artists");
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; a != null && i < a.length(); i++) {
+            if (b.length() > 0) b.append(", ");
+            b.append(a.optJSONObject(i).optString("name"));
+        }
+        if (b.length() == 0 && item.optJSONObject("show") != null) b.append(item.optJSONObject("show").optString("name"));
+        return b.toString();
+    }
+
+    /** The cover closest to 640 px (an album's, or an episode's own). */
+    private static String image(JSONObject item) {
+        JSONObject album = item.optJSONObject("album");
+        JSONArray imgs = album != null ? album.optJSONArray("images") : item.optJSONArray("images");
+        if ((imgs == null || imgs.length() == 0) && item.optJSONObject("show") != null) imgs = item.optJSONObject("show").optJSONArray("images");
+        return imgs == null || imgs.length() == 0 ? null : imgs.optJSONObject(0).optString("url");
+    }
+
     // MARK: - HTTP
 
     private static HttpURLConnection open(String url, String method) throws IOException {
