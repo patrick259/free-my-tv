@@ -223,6 +223,22 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** The last press on the home screen; MUSIC_IDLE_MS after it, with music playing, Now Playing opens (MusicActivity). */
     private long keyAt;
     private static final long MUSIC_IDLE_MS = 45_000;
+    /** Left alone this long, with no music on, the home screen gives way to the depth clock (DepthClockActivity). */
+    private static final long SCENE_IDLE_MS = 20_000;
+    private final Runnable sceneCheck = new Runnable() {
+        @Override public void run() {
+            if (!running) return;
+            long left = keyAt + SCENE_IDLE_MS - SystemClock.uptimeMillis();
+            if (left > 0) {
+                handler.postDelayed(this, left + 50);
+                return;
+            }
+            keyAt = SystemClock.uptimeMillis();
+            if (!drawerOpen && !sheetOpen && !reordering && Music.playing(getContext()) == null) DepthClockActivity.open(getContext());
+            else handler.postDelayed(this, SCENE_IDLE_MS);
+        }
+    };
+    private boolean sceneOn;
     private int drawerIndex;
     private Spring[] camFocus = new Spring[0];
     private RectF[] camRects = new RectF[0];
@@ -471,6 +487,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         Photos.importInbox(getContext(), ownReady);   // photos a computer just sent
         if (tvInputs != null) tvInputs.registerCallback(inputCallback, handler);
         handler.postDelayed(tick, 15_000);
+        sceneOn = Config.IDLE_CLOCK && DepthClockActivity.available(getContext());
+        if (sceneOn) handler.postDelayed(sceneCheck, SCENE_IDLE_MS);
         checkNotices();
         if (!again) reload();
         updatePalette();
@@ -493,6 +511,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         Choreographer.getInstance().removeFrameCallback(this);
         fx.stop();
         handler.removeCallbacks(tick);
+        handler.removeCallbacks(sceneCheck);
         handler.removeCallbacks(reloadSoon);
         data.removeListener(this);
         recs.removeListener(this);

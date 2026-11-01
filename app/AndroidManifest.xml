@@ -187,6 +187,16 @@
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density|fontScale|locale|layoutDirection"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
 
+        <!-- The home screen left alone: the clock behind the mountain (DepthClockActivity). -->
+        <activity
+            android:name=".DepthClockActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density|fontScale|locale|layoutDirection"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
+
         <!-- Now Playing: the music app's song our way, with weather, scores and what's on nearby (MusicActivity). -->
         <activity
             android:name=".MusicActivity"
